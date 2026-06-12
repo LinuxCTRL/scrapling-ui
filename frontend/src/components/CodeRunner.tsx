@@ -7,6 +7,7 @@ interface CodeRunnerProps {
   onStateUpdate: (state: any) => void;
   scrapedData?: any[];
   history?: any[];
+  apiKey?: string;
 }
 
 const compileToFramework = (
@@ -814,7 +815,8 @@ export const CodeRunner: React.FC<CodeRunnerProps> = ({
   sessionId, 
   onStateUpdate, 
   scrapedData = [],
-  history = []
+  history = [],
+  apiKey = ''
 }) => {
   const [copied, setCopied] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
@@ -824,6 +826,8 @@ export const CodeRunner: React.FC<CodeRunnerProps> = ({
   const [editableCode, setEditableCode] = useState<string>('');
   const [consoleTab, setConsoleTab] = useState<'console' | 'data'>('console');
   const [selectedFramework, setSelectedFramework] = useState<'scrapling_sync' | 'scrapling_async' | 'playwright_python' | 'scrapy_spider'>('scrapling_sync');
+  const [healableError, setHealableError] = useState<{ selector: string; actionType: string } | null>(null);
+  const [isHealing, setIsHealing] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const preRef = useRef<HTMLPreElement>(null);
@@ -860,11 +864,78 @@ export const CodeRunner: React.FC<CodeRunnerProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const extractSelectorFromError = (errorText: string): { selector: string; actionType: string } | null => {
+    const patterns = [
+      /(?:click|fill)\('([^']+)'\)/,
+      /matching selector ['"]([^'"]+)['"]/,
+      /querySelectorAll\(['"]([^'"]+)['"]\)/,
+      /waiting for selector ['"]([^'"]+)['"]/,
+      /Cannot find ['"]([^'"]+)['"]/,
+    ];
+    const actionPatterns = [
+      { re: /page\.click\(/, type: 'click' },
+      { re: /page\.fill\(/, type: 'fill' },
+      { re: /page\.query_selector_all\(/, type: 'extract' },
+      { re: /css\(\'[^']+::text/, type: 'extract' },
+    ];
+    for (const p of patterns) {
+      const m = errorText.match(p);
+      if (m) {
+        let actionType = 'click';
+        for (const ap of actionPatterns) {
+          if (errorText.match(ap.re)) { actionType = ap.type; break; }
+        }
+        return { selector: m[1], actionType };
+      }
+    }
+    return null;
+  };
+
+  const handleHealSelector = async (brokenSelector: string, actionType: string) => {
+    if (!sessionId || !apiKey) {
+      alert('Please set your DeepSeek API Key in the AI Settings panel first.');
+      return;
+    }
+    setIsHealing(true);
+    try {
+      const response = await fetch('/api/ai/heal-selector', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: sessionId,
+          broken_selector: brokenSelector,
+          action_type: actionType,
+          api_key: apiKey,
+        }),
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.detail || 'Healing failed');
+      }
+      const data = await response.json();
+      if (data.healed_selector) {
+        const updatedCode = editableCode.replaceAll(brokenSelector, data.healed_selector);
+        setEditableCode(updatedCode);
+        setConsoleOutput(
+          prev => prev + `\n\n🤖 AI Healed Selector!\n  Original: "${brokenSelector}"\n  Healed:   "${data.healed_selector}"\n\nClick "Run Recipe" again to retry.\n`
+        );
+        setHealableError(null);
+      } else {
+        setConsoleOutput(prev => prev + `\n\n❌ AI could not determine a fix for "${brokenSelector}".\n`);
+      }
+    } catch (e) {
+      setConsoleOutput(prev => prev + `\n\n❌ AI Healing failed: ${e instanceof Error ? e.message : 'Unknown error'}\n`);
+    } finally {
+      setIsHealing(false);
+    }
+  };
+
   const handleRun = async () => {
     if (!editableCode || isRunning) return;
     setIsRunning(true);
     setConsoleOutput('🚀 Executing Python Scrapling script on the active page...\n');
     setExitCode(null);
+    setHealableError(null);
     
     try {
       const response = await fetch('/api/run-code', {
@@ -896,9 +967,21 @@ export const CodeRunner: React.FC<CodeRunnerProps> = ({
       
       setConsoleOutput(out);
       setExitCode(data.exit_code);
+      
+      // Check for healable selector errors
+      const errorText = (data.stderr || '') + (data.exit_code !== 0 ? '' : '');
+      const parsed = extractSelectorFromError(errorText);
+      if (parsed && apiKey) {
+        setHealableError(parsed);
+      }
     } catch (e) {
-      setConsoleOutput(`❌ Execution failed:\n${e instanceof Error ? e.message : 'Unknown execution error'}`);
+      const errorMsg = e instanceof Error ? e.message : 'Unknown execution error';
+      setConsoleOutput(`❌ Execution failed:\n${errorMsg}`);
       setExitCode(-1);
+      const parsed = extractSelectorFromError(errorMsg);
+      if (parsed && apiKey) {
+        setHealableError(parsed);
+      }
     } finally {
       setIsRunning(false);
     }
@@ -1008,7 +1091,7 @@ export const CodeRunner: React.FC<CodeRunnerProps> = ({
           <textarea
             ref={textareaRef}
             value={editableCode}
-            onChange={(e) => setEditableCode(e.target.value)}
+            onChange={(e) => { setEditableCode(e.target.value); setHealableError(null); }}
             onScroll={handleScroll}
             spellCheck={false}
             style={{
@@ -1122,6 +1205,29 @@ export const CodeRunner: React.FC<CodeRunnerProps> = ({
               }}>
                 Process exited with code {exitCode}
               </span>
+            )}
+            {consoleTab === 'console' && healableError && (
+              <button
+                onClick={() => handleHealSelector(healableError.selector, healableError.actionType)}
+                disabled={isHealing}
+                style={{
+                  background: 'rgba(236, 72, 153, 0.1)',
+                  border: '1px solid rgba(236, 72, 153, 0.3)',
+                  borderRadius: 'var(--radius-sm)',
+                  color: 'var(--accent-secondary)',
+                  fontSize: '10px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  padding: '2px 8px',
+                  height: '20px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                }}
+                title="Use DeepSeek AI to fix the broken selector"
+              >
+                {isHealing ? '⏳ Healing...' : '🤖 Heal Selector'}
+              </button>
             )}
           </div>
           

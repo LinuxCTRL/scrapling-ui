@@ -17,7 +17,8 @@ from models import (
     TodoListUpdateRequest,
     QuerySelectorRequest,
     SaveJobRequest,
-    ToggleJobRequest
+    ToggleJobRequest,
+    HealSelectorRequest
 )
 from core.browser_manager import pw_manager
 from core.session import Session, active_sessions
@@ -25,6 +26,7 @@ from services.code_generator import generate_scrapling_code
 from services.code_runner import execute_run_code
 from core.db import get_all_jobs, get_job, save_job, delete_job, update_job_enabled
 from services.scheduler import start_scheduler, stop_scheduler, run_crawler_job, sync_db_to_scheduler, scheduler
+from services.deepseek_healer import heal_selector
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -290,6 +292,24 @@ async def query_selector(req: QuerySelectorRequest):
         return {"matches": matches}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Query failed: {str(e)}")
+
+@app.post("/api/ai/heal-selector")
+async def ai_heal_selector(req: HealSelectorRequest):
+    session = active_sessions.get(req.session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    try:
+        healed = await heal_selector(
+            api_key=req.api_key,
+            broken_selector=req.broken_selector,
+            action_type=req.action_type,
+            page=session.page,
+        )
+        if healed:
+            return {"healed_selector": healed, "original": req.broken_selector}
+        return {"healed_selector": None, "original": req.broken_selector, "detail": "Could not determine a fix"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI healing failed: {str(e)}")
 
 TODO_FILE_PATH = "/home/soufiane/Work/ai-scraper/todo_list.md"
 ARTIFACT_TODO_PATH = "/home/soufiane/.gemini/antigravity-cli/brain/9c5acae8-27b0-4ae5-b750-ed8631c345a2/todo_list.md"

@@ -61,3 +61,9 @@ class SaveJobRequest(BaseModel):
 
 class ToggleJobRequest(BaseModel):
     enabled: bool
+
+class HealSelectorRequest(BaseModel):
+    session_id: str
+    broken_selector: str
+    action_type: str
+    api_key: str

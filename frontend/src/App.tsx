@@ -8,6 +8,7 @@ import { CodeRunner } from './components/CodeRunner';
 import { SelectorInspector } from './components/SelectorInspector';
 import { RoadmapPanel } from './components/RoadmapPanel';
 import { SchedulerConsole } from './components/SchedulerConsole';
+import { AISettings } from './components/AISettings';
 
 interface DOMNode {
   tag: string;
@@ -59,6 +60,7 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [selectedNode, setSelectedNode] = useState<DOMNode | null>(null);
   const [scrapedData, setScrapedData] = useState<any[]>([]);
+  const [apiKey, setApiKey] = useState('');
   
   // Custom selector tester state
   const [customSelector, setCustomSelector] = useState('');
@@ -600,6 +602,7 @@ function App() {
           >
             Scroll Up
           </button>
+          <AISettings onApiKeyChange={setApiKey} />
         </div>
       </header>
 
@@ -692,6 +695,7 @@ function App() {
               onStateUpdate={handleStateUpdate}
               scrapedData={scrapedData}
               history={history}
+              apiKey={apiKey}
             />
           </div>
         </div>
