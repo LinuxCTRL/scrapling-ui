@@ -77,6 +77,17 @@ function App() {
     if (newState.scraped_data) setScrapedData(newState.scraped_data);
   };
 
+  const handleResetLocalState = () => {
+    setSessionId(null);
+    setScreenshot(null);
+    setDomTree(null);
+    setNetworkLogs([]);
+    setHistory([]);
+    setScrapedData([]);
+    setCode('');
+    setSelectedNode(null);
+  };
+
   // Launch browser session
   const handleLaunchSession = async () => {
     if (!url) return;
@@ -118,24 +129,15 @@ function App() {
     if (!sessionId) return;
     setIsLoading(true);
     try {
-      const response = await fetch('/api/session/close', {
+      await fetch('/api/session/close', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_id: sessionId })
       });
-      if (response.ok) {
-        setSessionId(null);
-        setScreenshot(null);
-        setDomTree(null);
-        setNetworkLogs([]);
-        setHistory([]);
-        setScrapedData([]);
-        setCode('');
-        setSelectedNode(null);
-      }
     } catch (e) {
       console.error('Error closing session', e);
     } finally {
+      handleResetLocalState();
       setIsLoading(false);
     }
   };
@@ -176,6 +178,9 @@ function App() {
       await updateGeneratedCode(sessionId);
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Error executing browser action');
+      if (e instanceof Error && e.message.includes('Session not found')) {
+        handleResetLocalState();
+      }
     } finally {
       setIsLoading(false);
     }
@@ -216,6 +221,9 @@ function App() {
       await updateGeneratedCode(sessionId);
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Error adding extraction step');
+      if (e instanceof Error && e.message.includes('Session not found')) {
+        handleResetLocalState();
+      }
     } finally {
       setIsLoading(false);
     }
@@ -247,6 +255,9 @@ function App() {
       await updateGeneratedCode(sessionId);
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Error deleting step');
+      if (e instanceof Error && e.message.includes('Session not found')) {
+        handleResetLocalState();
+      }
     } finally {
       setIsLoading(false);
     }
@@ -282,6 +293,9 @@ function App() {
       await updateGeneratedCode(sessionId);
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Error reordering steps');
+      if (e instanceof Error && e.message.includes('Session not found')) {
+        handleResetLocalState();
+      }
     } finally {
       setIsLoading(false);
     }
