@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Play, Square, Sparkles, Network, Eye, Layers, ChevronLeft, ChevronRight, Download, Upload, Globe } from 'lucide-react';
+import { Play, Square, Sparkles, Network, Eye, Layers, ChevronLeft, ChevronRight, Download, Upload, Globe, Calendar } from 'lucide-react';
 import { CanvasView } from './components/CanvasView';
 import { ElementsTree } from './components/ElementsTree';
 import { NetworkPanel } from './components/NetworkPanel';
@@ -7,6 +7,7 @@ import { WorkflowBuilder } from './components/WorkflowBuilder';
 import { CodeRunner } from './components/CodeRunner';
 import { SelectorInspector } from './components/SelectorInspector';
 import { RoadmapPanel } from './components/RoadmapPanel';
+import { SchedulerConsole } from './components/SchedulerConsole';
 
 interface DOMNode {
   tag: string;
@@ -69,7 +70,7 @@ function App() {
   const [disableResources, setDisableResources] = useState(false);
   
   // Tabs management
-  const [topTab, setTopTab] = useState<'elements' | 'network' | 'roadmap'>('elements');
+  const [topTab, setTopTab] = useState<'elements' | 'network' | 'roadmap' | 'scheduler'>('elements');
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
 
@@ -735,6 +736,13 @@ function App() {
                       <Sparkles size={14} />
                       Roadmap
                     </button>
+                    <button
+                      className={`tab-btn ${topTab === 'scheduler' ? 'active' : ''}`}
+                      onClick={() => setTopTab('scheduler')}
+                    >
+                      <Calendar size={14} />
+                      Scheduler
+                    </button>
                   </div>
                   <button 
                     className="btn btn-secondary" 
@@ -757,6 +765,12 @@ function App() {
                     />
                   ) : topTab === 'network' ? (
                     <NetworkPanel logs={networkLogs} />
+                  ) : topTab === 'scheduler' ? (
+                    <SchedulerConsole
+                      sessionId={sessionId}
+                      url={url}
+                      history={history}
+                    />
                   ) : (
                     <RoadmapPanel />
                   )}
