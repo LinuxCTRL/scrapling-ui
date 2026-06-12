@@ -5,13 +5,22 @@ interface CodeRunnerProps {
   code: string;
   sessionId: string | null;
   onStateUpdate: (state: any) => void;
+  scrapedData?: any[];
 }
 
-export const CodeRunner: React.FC<CodeRunnerProps> = ({ code, sessionId, onStateUpdate }) => {
+export const CodeRunner: React.FC<CodeRunnerProps> = ({ code, sessionId, onStateUpdate, scrapedData = [] }) => {
   const [copied, setCopied] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [consoleOutput, setConsoleOutput] = useState<string>('Console ready. Click "Run Recipe" to execute the Python script.');
   const [exitCode, setExitCode] = useState<number | null>(null);
+  const [consoleTab, setConsoleTab] = useState<'console' | 'data'>('console');
+
+  // Auto-switch to data tab when new list data is scraped
+  useEffect(() => {
+    if (scrapedData.length > 0) {
+      setConsoleTab('data');
+    }
+  }, [scrapedData.length]);
   
   // Local state to hold the editable code
   const [editableCode, setEditableCode] = useState<string>('');
@@ -176,27 +185,60 @@ export const CodeRunner: React.FC<CodeRunnerProps> = ({ code, sessionId, onState
           />
         </div>
 
-        {/* Right Side: Terminal Console Output */}
+        {/* Right Side: Terminal / Scraped Data Tabs */}
         <div style={{
           display: 'flex',
           flexDirection: 'column',
           background: '#020408',
           overflow: 'hidden'
         }}>
-          {/* Console Subheader */}
+          {/* Console/Scraped Data Subheader */}
           <div style={{
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            padding: '4px 12px',
             background: 'rgba(255,255,255,0.01)',
             borderBottom: '1px solid var(--border-light)',
-            height: '24px'
+            height: '28px',
+            padding: '0 8px'
           }}>
-            <span style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-              Execution Console
-            </span>
-            {exitCode !== null && (
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                onClick={() => setConsoleTab('console')}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: consoleTab === 'console' ? 'var(--accent-secondary)' : 'var(--text-muted)',
+                  fontSize: '10px',
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px',
+                  cursor: 'pointer',
+                  padding: '4px 8px',
+                  borderBottom: consoleTab === 'console' ? '2px solid var(--accent-secondary)' : 'none'
+                }}
+              >
+                Execution Console
+              </button>
+              <button
+                onClick={() => setConsoleTab('data')}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: consoleTab === 'data' ? 'var(--accent-secondary)' : 'var(--text-muted)',
+                  fontSize: '10px',
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px',
+                  cursor: 'pointer',
+                  padding: '4px 8px',
+                  borderBottom: consoleTab === 'data' ? '2px solid var(--accent-secondary)' : 'none'
+                }}
+              >
+                Scraped Data ({scrapedData.length})
+              </button>
+            </div>
+            {consoleTab === 'console' && exitCode !== null && (
               <span style={{ 
                 fontSize: '10px', 
                 color: exitCode === 0 ? '#10b981' : '#ef4444',
@@ -207,20 +249,86 @@ export const CodeRunner: React.FC<CodeRunnerProps> = ({ code, sessionId, onState
             )}
           </div>
           
-          {/* Console Text Area */}
-          <div style={{
-            flex: 1,
-            padding: '12px 12px 60px 12px',
-            overflowY: 'auto',
-            fontFamily: 'var(--font-mono)',
-            fontSize: '11px',
-            color: '#10b981',
-            lineHeight: '1.6',
-            whiteSpace: 'pre-wrap',
-            textAlign: 'left'
-          }}>
-            {consoleOutput}
-          </div>
+          {consoleTab === 'console' ? (
+            /* Console Text Area */
+            <div style={{
+              flex: 1,
+              padding: '12px 12px 60px 12px',
+              overflowY: 'auto',
+              fontFamily: 'var(--font-mono)',
+              fontSize: '11px',
+              color: '#10b981',
+              lineHeight: '1.6',
+              whiteSpace: 'pre-wrap',
+              textAlign: 'left'
+            }}>
+              {consoleOutput}
+            </div>
+          ) : (
+            /* Scraped Data Preview Grid */
+            <div style={{
+              flex: 1,
+              padding: '12px 12px 60px 12px',
+              overflowY: 'auto',
+              display: 'flex',
+              flexDirection: 'column'
+            }}>
+              {scrapedData.length === 0 ? (
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  height: '100%',
+                  color: 'var(--text-muted)',
+                  fontSize: '12px',
+                  textAlign: 'center',
+                  padding: '24px'
+                }}>
+                  <p style={{ marginBottom: '8px', color: 'var(--text-secondary)' }}>No list data scraped yet.</p>
+                  <p style={{ fontSize: '11px' }}>Use "Extract List Column" in the canvas context menu to extract sibling components into structured tables.</p>
+                </div>
+              ) : (
+                <table style={{
+                  width: '100%',
+                  borderCollapse: 'collapse',
+                  fontSize: '11.5px',
+                  color: 'var(--text-primary)',
+                  textAlign: 'left'
+                }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                      {Object.keys(scrapedData[0]).map((key) => (
+                        <th key={key} style={{ padding: '8px', color: 'var(--accent-secondary)', fontWeight: 600 }}>
+                          {key}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {scrapedData.map((row, idx) => (
+                      <tr key={idx} style={{ 
+                        borderBottom: '1px solid rgba(255,255,255,0.05)',
+                        backgroundColor: idx % 2 === 0 ? 'rgba(255,255,255,0.01)' : 'transparent'
+                      }}>
+                        {Object.keys(scrapedData[0]).map((key) => (
+                          <td key={key} style={{ 
+                            padding: '8px', 
+                            color: 'var(--text-secondary)',
+                            fontFamily: 'var(--font-mono)',
+                            wordBreak: 'break-all',
+                            maxWidth: '200px'
+                          }}>
+                            {row[key]}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

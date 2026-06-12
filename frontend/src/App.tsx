@@ -6,6 +6,7 @@ import { NetworkPanel } from './components/NetworkPanel';
 import { WorkflowBuilder } from './components/WorkflowBuilder';
 import { CodeRunner } from './components/CodeRunner';
 import { SelectorInspector } from './components/SelectorInspector';
+import { RoadmapPanel } from './components/RoadmapPanel';
 
 interface DOMNode {
   tag: string;
@@ -56,9 +57,10 @@ function App() {
   const [code, setCode] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const [selectedNode, setSelectedNode] = useState<DOMNode | null>(null);
+  const [scrapedData, setScrapedData] = useState<any[]>([]);
   
   // Tabs management
-  const [topTab, setTopTab] = useState<'elements' | 'network'>('elements');
+  const [topTab, setTopTab] = useState<'elements' | 'network' | 'roadmap'>('elements');
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
 
@@ -67,6 +69,7 @@ function App() {
     if (newState.dom_tree) setDomTree(newState.dom_tree);
     if (newState.network_logs) setNetworkLogs(newState.network_logs);
     if (newState.history) setHistory(newState.history);
+    if (newState.scraped_data) setScrapedData(newState.scraped_data);
   };
 
   // Launch browser session
@@ -89,6 +92,7 @@ function App() {
       setDomTree(data.dom_tree);
       setNetworkLogs(data.network_logs);
       setHistory(data.history);
+      if (data.scraped_data) setScrapedData(data.scraped_data);
       
       // Load generated code
       await updateGeneratedCode(data.session_id);
@@ -115,6 +119,7 @@ function App() {
         setDomTree(null);
         setNetworkLogs([]);
         setHistory([]);
+        setScrapedData([]);
         setCode('');
         setSelectedNode(null);
       }
@@ -148,6 +153,7 @@ function App() {
       setDomTree(data.dom_tree);
       setNetworkLogs(data.network_logs);
       setHistory(data.history);
+      if (data.scraped_data) setScrapedData(data.scraped_data);
 
       // Automatically sync code
       await updateGeneratedCode(sessionId);
@@ -159,7 +165,7 @@ function App() {
   };
 
   // Add extraction step visually
-  const handleAddExtraction = async (selector: string, name: string, attribute: string) => {
+  const handleAddExtraction = async (actionType: 'extract' | 'extract_list', selector: string, name: string, attribute: string) => {
     if (!sessionId) return;
     setIsLoading(true);
     try {
@@ -168,7 +174,7 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           session_id: sessionId,
-          action_type: 'extract',
+          action_type: actionType,
           selector,
           extract_name: name,
           extract_attribute: attribute
@@ -179,6 +185,8 @@ function App() {
       }
       const data = await response.json();
       setHistory(data.history);
+      if (data.scraped_data) setScrapedData(data.scraped_data);
+      if (data.screenshot) setScreenshot(data.screenshot);
 
       // Automatically sync code
       await updateGeneratedCode(sessionId);
@@ -367,6 +375,7 @@ function App() {
               code={code} 
               sessionId={sessionId}
               onStateUpdate={handleStateUpdate}
+              scrapedData={scrapedData}
             />
           </div>
         </div>
@@ -386,7 +395,7 @@ function App() {
             </div>
           ) : (
             <>
-              {/* Top Panel: DOM Tree & Network Logs */}
+              {/* Top Panel: DOM Tree & Network Logs & Roadmap */}
               <div className="right-sidebar-top" style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
                 <div className="tabs-header" style={{ justifyContent: 'space-between', paddingRight: '8px', alignItems: 'center' }}>
                   <div style={{ display: 'flex' }}>
@@ -403,6 +412,13 @@ function App() {
                     >
                       <Network size={14} />
                       Network Traffic
+                    </button>
+                    <button
+                      className={`tab-btn ${topTab === 'roadmap' ? 'active' : ''}`}
+                      onClick={() => setTopTab('roadmap')}
+                    >
+                      <Sparkles size={14} />
+                      Roadmap
                     </button>
                   </div>
                   <button 
@@ -421,8 +437,10 @@ function App() {
                       selectedNode={selectedNode}
                       setSelectedNode={setSelectedNode}
                     />
-                  ) : (
+                  ) : topTab === 'network' ? (
                     <NetworkPanel logs={networkLogs} />
+                  ) : (
+                    <RoadmapPanel />
                   )}
                 </div>
               </div>

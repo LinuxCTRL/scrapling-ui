@@ -24,7 +24,7 @@ interface CanvasViewProps {
   onExecuteAction: (actionType: string, selector: string, value?: string) => Promise<void>;
   selectedNode: DOMNode | null;
   setSelectedNode: (node: DOMNode | null) => void;
-  onAddExtraction: (selector: string, name: string, attribute: string) => void;
+  onAddExtraction: (actionType: 'extract' | 'extract_list', selector: string, name: string, attribute: string) => void;
 }
 
 export const CanvasView: React.FC<CanvasViewProps> = ({
@@ -58,6 +58,8 @@ export const CanvasView: React.FC<CanvasViewProps> = ({
   const [extractName, setExtractName] = useState('');
   const [extractAttr, setExtractAttr] = useState('text');
   const [showExtractForm, setShowExtractForm] = useState(false);
+  const [showExtractListForm, setShowExtractListForm] = useState(false);
+  const [listSelector, setListSelector] = useState('');
 
   // Flatten DOM Tree when it changes
   useEffect(() => {
@@ -215,8 +217,19 @@ export const CanvasView: React.FC<CanvasViewProps> = ({
   const executeExtract = (e: React.FormEvent) => {
     e.preventDefault();
     if (!actionMenu || !extractName) return;
-    onAddExtraction(actionMenu.node.selector, extractName, extractAttr);
+    onAddExtraction('extract', actionMenu.node.selector, extractName, extractAttr);
     setActionMenu(null);
+  };
+
+  const executeExtractList = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!actionMenu || !extractName || !listSelector) return;
+    onAddExtraction('extract_list', listSelector, extractName, extractAttr);
+    setActionMenu(null);
+  };
+
+  const generalizeSelector = (sel: string): string => {
+    return sel.replace(/:nth-of-type\(\d+\)/g, '');
   };
 
   return (
@@ -299,7 +312,7 @@ export const CanvasView: React.FC<CanvasViewProps> = ({
                   {actionMenu.node.selector}
                 </div>
 
-                {!showInputForm && !showExtractForm ? (
+                {!showInputForm && !showExtractForm && !showExtractListForm ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                     <button 
                       className="btn btn-secondary" 
@@ -320,10 +333,27 @@ export const CanvasView: React.FC<CanvasViewProps> = ({
                     <button 
                       className="btn btn-secondary" 
                       style={{ height: '32px', justifyContent: 'flex-start', fontSize: '12px', borderColor: 'var(--accent-warn)' }}
-                      onClick={() => setShowExtractForm(true)}
+                      onClick={() => {
+                        setShowExtractForm(true);
+                        setExtractName(actionMenu.node.tag + '_' + Math.floor(Math.random() * 100));
+                        setExtractAttr(actionMenu.node.tag === 'a' ? 'href' : 'text');
+                      }}
                     >
                       <Sparkles size={14} color="var(--accent-warn)" />
                       Extract Visually
+                    </button>
+                    <button 
+                      className="btn btn-secondary" 
+                      style={{ height: '32px', justifyContent: 'flex-start', fontSize: '12px', borderColor: 'var(--accent-secondary)' }}
+                      onClick={() => {
+                        setShowExtractListForm(true);
+                        setListSelector(generalizeSelector(actionMenu.node.selector));
+                        setExtractName(actionMenu.node.tag + '_list');
+                        setExtractAttr(actionMenu.node.tag === 'a' ? 'href' : 'text');
+                      }}
+                    >
+                      <Sparkles size={14} color="var(--accent-secondary)" />
+                      Extract List Column
                     </button>
                   </div>
                 ) : showInputForm ? (
@@ -349,7 +379,7 @@ export const CanvasView: React.FC<CanvasViewProps> = ({
                       <button type="button" className="btn btn-secondary" style={{ height: '28px', flex: 1, fontSize: '11px' }} onClick={() => setShowInputForm(false)}>Back</button>
                     </div>
                   </form>
-                ) : (
+                ) : showExtractForm ? (
                   <form onSubmit={executeExtract} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Variable Name:</label>
                     <input 
@@ -391,6 +421,66 @@ export const CanvasView: React.FC<CanvasViewProps> = ({
                     <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
                       <button type="submit" className="btn btn-primary" style={{ height: '28px', flex: 1, fontSize: '11px', background: 'var(--accent-warn)' }}>Add Step</button>
                       <button type="button" className="btn btn-secondary" style={{ height: '28px', flex: 1, fontSize: '11px' }} onClick={() => setShowExtractForm(false)}>Back</button>
+                    </div>
+                  </form>
+                ) : (
+                  <form onSubmit={executeExtractList} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Column/List Name:</label>
+                    <input 
+                      type="text" 
+                      value={extractName}
+                      onChange={(e) => setExtractName(e.target.value)}
+                      placeholder="col_name"
+                      style={{
+                        background: 'var(--bg-main)',
+                        border: '1px solid var(--border-light)',
+                        borderRadius: 'var(--radius-sm)',
+                        padding: '6px 8px',
+                        color: '#fff',
+                        fontSize: '12px'
+                      }}
+                      autoFocus
+                    />
+                    <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Generalized Selector:</label>
+                    <input 
+                      type="text" 
+                      value={listSelector}
+                      onChange={(e) => setListSelector(e.target.value)}
+                      placeholder="Generalized CSS Selector"
+                      style={{
+                        background: 'var(--bg-main)',
+                        border: '1px solid var(--border-light)',
+                        borderRadius: 'var(--radius-sm)',
+                        padding: '6px 8px',
+                        color: '#fff',
+                        fontSize: '11px',
+                        fontFamily: 'var(--font-mono)'
+                      }}
+                    />
+                    <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Attribute to Extract:</label>
+                    <select
+                      value={extractAttr}
+                      onChange={(e) => setExtractAttr(e.target.value)}
+                      style={{
+                        background: 'var(--bg-main)',
+                        border: '1px solid var(--border-light)',
+                        borderRadius: 'var(--radius-sm)',
+                        padding: '6px 8px',
+                        color: '#fff',
+                        fontSize: '12px',
+                        outline: 'none'
+                      }}
+                    >
+                      <option value="text">Inner Text (::text)</option>
+                      <option value="html">Inner HTML</option>
+                      <option value="href">Href Link (a)</option>
+                      <option value="src">Src Link (img)</option>
+                      <option value="placeholder">Placeholder</option>
+                      <option value="value">Input Value</option>
+                    </select>
+                    <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
+                      <button type="submit" className="btn btn-primary" style={{ height: '28px', flex: 1, fontSize: '11px', background: 'var(--accent-secondary)' }}>Add Column</button>
+                      <button type="button" className="btn btn-secondary" style={{ height: '28px', flex: 1, fontSize: '11px' }} onClick={() => setShowExtractListForm(false)}>Back</button>
                     </div>
                   </form>
                 )}

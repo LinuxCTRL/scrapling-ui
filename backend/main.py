@@ -134,8 +134,52 @@ class Session:
             "screenshot": screenshot_data_uri,
             "dom_tree": dom_tree,
             "network_logs": self.network_logs,
-            "history": self.history
+            "history": self.history,
+            "scraped_data": await self.get_scraped_data()
         }
+
+    async def get_scraped_data(self) -> List[Dict[str, str]]:
+        list_steps = [s for s in self.history if s["action"] == "extract_list"]
+        if not list_steps:
+            return []
+            
+        columns = {}
+        max_len = 0
+        for step in list_steps:
+            name = step.get("name", "data")
+            selector = step.get("selector", "")
+            attr = step.get("attribute", "text")
+            escaped_selector = selector.replace("'", "\\'")
+            
+            js_query = f"""
+            () => {{
+                try {{
+                    const elms = document.querySelectorAll('{escaped_selector}');
+                    return Array.from(elms).map(el => {{
+                        if ('{attr}' === 'text') return el.textContent ? el.textContent.trim() : '';
+                        if ('{attr}' === 'html') return el.innerHTML || '';
+                        return el.getAttribute('{attr}') || '';
+                    }});
+                }} catch (e) {{
+                    return [];
+                }}
+            }}
+            """
+            try:
+                vals = await self.page.evaluate(js_query)
+                columns[name] = vals
+                max_len = max(max_len, len(vals))
+            except Exception as e:
+                print(f"Error executing list extraction: {e}")
+                columns[name] = []
+                
+        rows = []
+        for i in range(max_len):
+            row = {}
+            for name in columns:
+                row[name] = columns[name][i] if i < len(columns[name]) else ""
+            rows.append(row)
+        return rows
 
     async def close(self):
         try:
@@ -263,7 +307,16 @@ async def execute_action(req: ActionRequest):
                 "selector": req.selector,
                 "attribute": req.extract_attribute
             })
-            # Visual extract doesn't change page state, just appends to history log for code gen
+
+        elif req.action_type == "extract_list":
+            if not req.selector or not req.extract_name or not req.extract_attribute:
+                raise HTTPException(status_code=400, detail="Selector, extract_name, and extract_attribute required for extract_list action")
+            session.history.append({
+                "action": "extract_list",
+                "name": req.extract_name,
+                "selector": req.selector,
+                "attribute": req.extract_attribute
+            })
             
         else:
             raise HTTPException(status_code=400, detail=f"Unknown action type: {req.action_type}")
@@ -415,6 +468,8 @@ def generate_scrapling_code(history: List[Dict[str, Any]]) -> str:
         lines.append(f"    response = StealthyFetcher.fetch('{start_url}', headless=True)")
         lines.append("")
 
+    list_extractions = [step for step in history if step["action"] == "extract_list"]
+
     if extractions:
         lines.append("    # Extract data")
         for step in extractions:
@@ -434,8 +489,144 @@ def generate_scrapling_code(history: List[Dict[str, Any]]) -> str:
                 
             lines.append(f"    print('{step['name']}:', {var_name})")
             lines.append("")
+
+    if list_extractions:
+        lines.append("    # Extract List Data")
+        for step in list_extractions:
+            var_name = step.get("name", "data").lower().replace(" ", "_")
+            selector = step["selector"].replace('\\', '\\\\')
+            attr = step["attribute"]
+            
+            if attr == "text":
+                lines.append(f"    {var_name}_list = response.css('{selector}::text').get_all()")
+            elif attr == "html":
+                lines.append(f"    {var_name}_list = response.css('{selector}').get_all()")
+            else:
+                lines.append(f"    {var_name}_list = response.css('{selector}::attr({attr})').get_all()")
+        
+        lines.append("")
+        lines.append("    # Print structured table rows")
+        vars_zip = ", ".join([f"{step['name'].lower().replace(' ', '_')}" for step in list_extractions])
+        vars_list = ", ".join([f"{step['name'].lower().replace(' ', '_')}_list" for step in list_extractions])
+        lines.append(f"    for {vars_zip} in zip({vars_list}):")
+        
+        dict_items = ", ".join([f"'{step['name']}': {step['name'].lower().replace(' ', '_')}" for step in list_extractions])
+        lines.append(f"        print({{{dict_items}}})")
+        lines.append("")
             
     lines.append("if __name__ == '__main__':")
     lines.append("    run_scraper()")
     
     return "\n".join(lines)
+
+
+# Pydantic models for Todo List
+class SubTaskModel(BaseModel):
+    text: str
+    checked: bool
+
+class TaskModel(BaseModel):
+    title: str
+    checked: bool
+    status: str
+    subtasks: List[SubTaskModel]
+
+class TodoListUpdateRequest(BaseModel):
+    tasks: List[TaskModel]
+
+import re
+
+TODO_FILE_PATH = "/home/soufiane/Work/ai-scraper/todo_list.md"
+ARTIFACT_TODO_PATH = "/home/soufiane/.gemini/antigravity-cli/brain/9c5acae8-27b0-4ae5-b750-ed8631c345a2/todo_list.md"
+
+@app.get("/api/todo")
+async def get_todo_list():
+    path = TODO_FILE_PATH
+    if not os.path.exists(path):
+        path = ARTIFACT_TODO_PATH
+        if not os.path.exists(path):
+            return {"tasks": []}
+            
+    with open(path, "r", encoding="utf-8") as f:
+        content = f.read()
+        
+    lines = content.split('\n')
+    tasks = []
+    current_task = None
+    
+    for line in lines:
+        # Match main task: - [ ] **Visual List Extraction (Multi-Item Scraper)** `[ACTIVE]`
+        main_match = re.match(r'^\s*-\s*\[([ xX])\]\s*\*\*(.*?)\*\*(?:\s*`\[(.*?)\]`)?', line)
+        if main_match:
+            checked = main_match.group(1).lower() == 'x'
+            title = main_match.group(2).strip()
+            status = main_match.group(3) or ("DONE" if checked else "TODO")
+            current_task = {
+                "title": title,
+                "checked": checked,
+                "status": status.strip().upper(),
+                "subtasks": []
+            }
+            tasks.append(current_task)
+            continue
+            
+        if current_task is not None:
+            sub_match = re.match(r'^\s+-\s*(?:\[([ xX])\]\s*)?(.*)', line)
+            if sub_match:
+                sub_checked = False
+                if sub_match.group(1):
+                    sub_checked = sub_match.group(1).lower() == 'x'
+                text = sub_match.group(2).strip()
+                current_task["subtasks"].append({
+                    "text": text,
+                    "checked": sub_checked
+                })
+                
+    return {"tasks": tasks}
+
+@app.post("/api/todo")
+async def update_todo_list(req: TodoListUpdateRequest):
+    lines = [
+        "# Scrapling UI - Feature Todo List",
+        "",
+        "This file tracks the status of major features and enhancements proposed to scale the visual web scraping builder.",
+        "",
+        "---",
+        "",
+        "## 📋 Features Checklist",
+        ""
+    ]
+    for task in req.tasks:
+        checkbox = "x" if task.checked else " "
+        status_str = f" `[{task.status.upper()}]`" if task.status else ""
+        lines.append(f"- [{checkbox}] **{task.title}**{status_str}")
+        for sub in task.subtasks:
+            sub_checkbox = "x" if sub.checked else " "
+            lines.append(f"  - [{sub_checkbox}] {sub.text}")
+            
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("## 🛠 Active Work")
+    
+    active_tasks = [t for t in req.tasks if t.status.upper() == "ACTIVE"]
+    if active_tasks:
+        lines.append(f"We are active on **{active_tasks[0].title}**.")
+    else:
+        lines.append("No active task selected. Choose one in the Scrapling UI!")
+        
+    md_content = "\n".join(lines) + "\n"
+    
+    # Save to both paths to keep them fully in sync
+    for path in [TODO_FILE_PATH, ARTIFACT_TODO_PATH]:
+        try:
+            dir_name = os.path.dirname(path)
+            if dir_name and not os.path.exists(dir_name):
+                os.makedirs(dir_name, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(md_content)
+        except Exception as e:
+            print(f"Failed to write todo list to {path}: {e}")
+            
+    return {"status": "success", "tasks": req.tasks}
+
