@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Play, Square, Sparkles, Network, Eye, Layers, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Play, Square, Sparkles, Network, Eye, Layers, ChevronLeft, ChevronRight, Download, Upload } from 'lucide-react';
 import { CanvasView } from './components/CanvasView';
 import { ElementsTree } from './components/ElementsTree';
 import { NetworkPanel } from './components/NetworkPanel';
@@ -59,6 +59,11 @@ function App() {
   const [selectedNode, setSelectedNode] = useState<DOMNode | null>(null);
   const [scrapedData, setScrapedData] = useState<any[]>([]);
   
+  // Stealth & Anti-bot Settings
+  const [solveCloudflare, setSolveCloudflare] = useState(true);
+  const [blockAds, setBlockAds] = useState(true);
+  const [disableResources, setDisableResources] = useState(false);
+  
   // Tabs management
   const [topTab, setTopTab] = useState<'elements' | 'network' | 'roadmap'>('elements');
   const [leftCollapsed, setLeftCollapsed] = useState(false);
@@ -81,7 +86,12 @@ function App() {
       const response = await fetch('/api/session/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url })
+        body: JSON.stringify({ 
+          url,
+          solve_cloudflare: solveCloudflare,
+          block_ads: blockAds,
+          disable_resources: disableResources
+        })
       });
       if (!response.ok) {
         throw new Error('Failed to start scraper session');
@@ -197,6 +207,187 @@ function App() {
     }
   };
 
+  // Delete step and rollback/replay session state
+  const handleDeleteStep = async (idx: number) => {
+    const newHistory = history.filter((_, i) => i !== idx);
+    if (!sessionId) {
+      setHistory(newHistory);
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const response = await fetch('/api/session/update-history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: sessionId,
+          history: newHistory
+        })
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.detail || 'Failed to update recipe history');
+      }
+      const data = await response.json();
+      handleStateUpdate(data);
+      await updateGeneratedCode(sessionId);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Error deleting step');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Reorder steps and rollback/replay session state
+  const handleReorderSteps = async (draggedIdx: number, targetIdx: number) => {
+    if (draggedIdx === targetIdx) return;
+    const newHistory = [...history];
+    const [draggedItem] = newHistory.splice(draggedIdx, 1);
+    newHistory.splice(targetIdx, 0, draggedItem);
+    
+    if (!sessionId) {
+      setHistory(newHistory);
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const response = await fetch('/api/session/update-history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: sessionId,
+          history: newHistory
+        })
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.detail || 'Failed to update recipe history');
+      }
+      const data = await response.json();
+      handleStateUpdate(data);
+      await updateGeneratedCode(sessionId);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Error reordering steps');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Export current recipe timeline as local JSON file
+  const handleExportRecipe = () => {
+    if (history.length === 0) {
+      alert('No recipe steps to export yet!');
+      return;
+    }
+    const recipeData = {
+      url,
+      solve_cloudflare: solveCloudflare,
+      block_ads: blockAds,
+      disable_resources: disableResources,
+      history
+    };
+    const blob = new Blob([JSON.stringify(recipeData, null, 2)], { type: 'application/json' });
+    const href = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = href;
+    link.download = `scrapling_recipe_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(href);
+  };
+
+  // Import recipe timeline from JSON file, start browser, and replay
+  const handleImportRecipe = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const data = JSON.parse(e.target?.result as string);
+        if (!data.url || !Array.isArray(data.history)) {
+          alert('Invalid recipe format. Must contain a starting URL and step history.');
+          return;
+        }
+
+        // Apply settings states
+        setUrl(data.url);
+        if (data.solve_cloudflare !== undefined) setSolveCloudflare(data.solve_cloudflare);
+        if (data.block_ads !== undefined) setBlockAds(data.block_ads);
+        if (data.disable_resources !== undefined) setDisableResources(data.disable_resources);
+        setHistory(data.history);
+
+        setIsLoading(true);
+
+        // Close active session if exists
+        if (sessionId) {
+          try {
+            await fetch('/api/session/close', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ session_id: sessionId })
+            });
+          } catch (err) {
+            console.error('Error closing session during import:', err);
+          }
+          setSessionId(null);
+          setScreenshot(null);
+          setDomTree(null);
+          setNetworkLogs([]);
+          setHistory([]);
+          setScrapedData([]);
+          setCode('');
+        }
+
+        // Launch fresh session
+        const startRes = await fetch('/api/session/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            url: data.url,
+            solve_cloudflare: data.solve_cloudflare ?? true,
+            block_ads: data.block_ads ?? true,
+            disable_resources: data.disable_resources ?? false
+          })
+        });
+
+        if (!startRes.ok) {
+          throw new Error('Failed to auto-launch browser session for recipe');
+        }
+
+        const startData = await startRes.json();
+        setSessionId(startData.session_id);
+
+        // Replay step actions
+        const updateRes = await fetch('/api/session/update-history', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            session_id: startData.session_id,
+            history: data.history
+          })
+        });
+
+        if (!updateRes.ok) {
+          const err = await updateRes.json();
+          throw new Error(err.detail || 'Failed to replay recipe steps');
+        }
+
+        const finalState = await updateRes.json();
+        handleStateUpdate(finalState);
+        await updateGeneratedCode(startData.session_id);
+
+        alert('Scrapling recipe imported and replayed successfully!');
+      } catch (err) {
+        alert(err instanceof Error ? err.message : 'Failed to import recipe');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    reader.readAsText(file);
+  };
+
   // Scroll viewport down programmatically
   const handleScroll = async (scrollOffset: number) => {
     if (!sessionId) return;
@@ -296,6 +487,39 @@ function App() {
           )}
         </div>
 
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', fontSize: '11.5px', color: 'var(--text-secondary)', marginLeft: '12px' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none' }} title="Bypasses Cloudflare Turnstile & bot challenges.">
+            <input 
+              type="checkbox" 
+              checked={solveCloudflare} 
+              onChange={(e) => setSolveCloudflare(e.target.checked)}
+              disabled={!!sessionId}
+              style={{ accentColor: 'var(--accent-primary)', cursor: 'pointer' }}
+            />
+            🛡️ Bypasses
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none' }} title="Blocks ad domains and tracking analytics.">
+            <input 
+              type="checkbox" 
+              checked={blockAds} 
+              onChange={(e) => setBlockAds(e.target.checked)}
+              disabled={!!sessionId}
+              style={{ accentColor: 'var(--accent-primary)', cursor: 'pointer' }}
+            />
+            🚫 Block Ads
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none' }} title="Disables fonts, images, stylesheets, and media for super fast speeds.">
+            <input 
+              type="checkbox" 
+              checked={disableResources} 
+              onChange={(e) => setDisableResources(e.target.checked)}
+              disabled={!!sessionId}
+              style={{ accentColor: 'var(--accent-primary)', cursor: 'pointer' }}
+            />
+            ⚡ Speed Mode
+          </label>
+        </div>
+
         <div style={{ display: 'flex', gap: '8px' }}>
           <button 
             className="btn btn-secondary" 
@@ -338,21 +562,48 @@ function App() {
               </button>
             ) : (
               <>
-                <span>Visual Scraper Recipe</span>
-                <button 
-                  className="btn btn-secondary" 
-                  onClick={() => setLeftCollapsed(true)} 
-                  style={{ width: '28px', height: '28px', padding: 0, border: 'none', background: 'transparent' }}
-                  title="Collapse Recipe"
-                >
-                  <ChevronLeft size={16} color="var(--text-muted)" />
-                </button>
+                <span style={{ fontSize: '13px', fontWeight: 600 }}>Visual Recipe</span>
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={handleExportRecipe}
+                    style={{ width: '26px', height: '26px', padding: 0 }}
+                    title="Export Recipe (.json)"
+                  >
+                    <Download size={13} />
+                  </button>
+                  <label
+                    className="btn btn-secondary"
+                    style={{ width: '26px', height: '26px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                    title="Import Recipe (.json)"
+                  >
+                    <Upload size={13} />
+                    <input 
+                      type="file" 
+                      accept=".json"
+                      onChange={handleImportRecipe}
+                      style={{ display: 'none' }}
+                    />
+                  </label>
+                  <button 
+                    className="btn btn-secondary" 
+                    onClick={() => setLeftCollapsed(true)} 
+                    style={{ width: '26px', height: '26px', padding: 0, border: 'none', background: 'transparent' }}
+                    title="Collapse Recipe"
+                  >
+                    <ChevronLeft size={15} color="var(--text-muted)" />
+                  </button>
+                </div>
               </>
             )}
           </div>
           {!leftCollapsed && (
             <div className="column-content">
-              <WorkflowBuilder history={history} />
+              <WorkflowBuilder 
+                history={history} 
+                onDeleteStep={handleDeleteStep}
+                onReorderSteps={handleReorderSteps}
+              />
             </div>
           )}
         </section>
@@ -376,6 +627,7 @@ function App() {
               sessionId={sessionId}
               onStateUpdate={handleStateUpdate}
               scrapedData={scrapedData}
+              history={history}
             />
           </div>
         </div>

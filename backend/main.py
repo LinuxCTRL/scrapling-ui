@@ -15,6 +15,9 @@ class StartSessionRequest(BaseModel):
     url: str
     width: int = 1280
     height: int = 800
+    solve_cloudflare: bool = True
+    block_ads: bool = True
+    disable_resources: bool = False
 
 class ActionRequest(BaseModel):
     session_id: str
@@ -33,11 +36,14 @@ class GenerateCodeRequest(BaseModel):
     session_id: str
 
 class Session:
-    def __init__(self, session_id: str, browser: Browser, context: BrowserContext, page: Page):
+    def __init__(self, session_id: str, browser: Browser, context: BrowserContext, page: Page, solve_cloudflare: bool = True, block_ads: bool = True, disable_resources: bool = False):
         self.session_id = session_id
         self.browser = browser
         self.context = context
         self.page = page
+        self.solve_cloudflare = solve_cloudflare
+        self.block_ads = block_ads
+        self.disable_resources = disable_resources
         self.network_logs: List[Dict[str, Any]] = []
         self.history: List[Dict[str, Any]] = []
         self._request_map = {}
@@ -181,6 +187,70 @@ class Session:
             rows.append(row)
         return rows
 
+    async def replay_history(self, new_history: List[Dict[str, Any]]):
+        self.history = []
+        self.network_logs = []
+        self._request_map = {}
+        
+        # Find the navigate action
+        start_url = None
+        for step in new_history:
+            if step["action"] == "navigate":
+                start_url = step.get("url")
+                break
+                
+        if not start_url:
+            return
+            
+        try:
+            await self.page.goto(start_url, wait_until="load", timeout=30000)
+            self.history.append({"action": "navigate", "url": start_url})
+        except Exception as e:
+            print(f"Failed to navigate during replay: {e}")
+            raise Exception(f"Failed to navigate to {start_url}: {e}")
+            
+        for step in new_history:
+            action = step["action"]
+            if action == "navigate":
+                continue
+                
+            try:
+                if action == "click":
+                    selector = step["selector"]
+                    await self.page.click(selector, timeout=5000)
+                    self.history.append({"action": "click", "selector": selector})
+                    
+                elif action == "fill":
+                    selector = step["selector"]
+                    val = step["value"]
+                    await self.page.fill(selector, val, timeout=5000)
+                    self.history.append({"action": "fill", "selector": selector, "value": val})
+                    
+                elif action == "scroll":
+                    y = step.get("y", 300)
+                    await self.page.evaluate(f"window.scrollBy(0, {y})")
+                    self.history.append({"action": "scroll", "y": y})
+                    await asyncio.sleep(1.0)
+                    
+                elif action == "extract":
+                    self.history.append({
+                        "action": "extract",
+                        "name": step["name"],
+                        "selector": step["selector"],
+                        "attribute": step["attribute"]
+                    })
+                    
+                elif action == "extract_list":
+                    self.history.append({
+                        "action": "extract_list",
+                        "name": step["name"],
+                        "selector": step["selector"],
+                        "attribute": step["attribute"]
+                    })
+            except Exception as e:
+                print(f"Replay failed on step {step}: {e}")
+                raise Exception(f"Failed to replay step '{action}' on '{step.get('selector', '')}': {str(e)}")
+
     async def close(self):
         try:
             await self.page.close()
@@ -250,9 +320,43 @@ async def start_session(req: StartSessionRequest):
         )
         page = await context.new_page()
         
-        session = Session(session_id, pw_manager.browser, context, page)
+        session = Session(
+            session_id, 
+            pw_manager.browser, 
+            context, 
+            page,
+            solve_cloudflare=req.solve_cloudflare,
+            block_ads=req.block_ads,
+            disable_resources=req.disable_resources
+        )
         active_sessions[session_id] = session
         
+        # Configure route blocking for Ad Blocking & Speed Mode
+        if req.block_ads or req.disable_resources:
+            async def route_filter(route, request):
+                url = request.url.lower()
+                resource_type = request.resource_type
+                
+                # Speed Mode: block media, fonts, images, stylesheets
+                if req.disable_resources and resource_type in ["image", "media", "font", "stylesheet"]:
+                    await route.abort()
+                    return
+                    
+                # Ad/Tracker Blocking
+                if req.block_ads:
+                    ad_keywords = [
+                        "google-analytics", "doubleclick", "adservice", "analytics.js", 
+                        "adsbygoogle", "adnxs", "taboola", "outbrain", "hotjar", 
+                        "adroll", "quantserve", "scorecardresearch", "facebook.net"
+                    ]
+                    if any(kw in url for kw in ad_keywords):
+                        await route.abort()
+                        return
+                        
+                await route.continue_()
+                
+            await page.route("**/*", route_filter)
+
         # Navigate to target URL
         session.history.append({"action": "navigate", "url": req.url})
         await page.goto(req.url, wait_until="load", timeout=30000)
@@ -324,6 +428,22 @@ async def execute_action(req: ActionRequest):
         return await session.get_state()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Action failed: {str(e)}")
+
+class UpdateHistoryRequest(BaseModel):
+    session_id: str
+    history: List[Dict[str, Any]]
+
+@app.post("/api/session/update-history")
+async def update_history(req: UpdateHistoryRequest):
+    session = active_sessions.get(req.session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    try:
+        await session.replay_history(req.history)
+        return await session.get_state()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/session/close")
 async def close_session(req: CloseSessionRequest):
@@ -422,7 +542,12 @@ async def run_code(req: RunCodeRequest):
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to run code: {str(e)}")
 
-def generate_scrapling_code(history: List[Dict[str, Any]]) -> str:
+def generate_scrapling_code(
+    history: List[Dict[str, Any]],
+    solve_cloudflare: bool = True,
+    block_ads: bool = True,
+    disable_resources: bool = False
+) -> str:
     lines = []
     lines.append("# Generated by Scrapling Visual Builder")
     lines.append("from scrapling.fetchers import StealthyFetcher")
@@ -437,6 +562,15 @@ def generate_scrapling_code(history: List[Dict[str, Any]]) -> str:
     interactions = [step for step in history if step["action"] in ["click", "fill", "scroll"]]
     extractions = [step for step in history if step["action"] == "extract"]
     
+    # Build dynamic fetch arguments
+    fetch_args = f"'{start_url}', headless=True"
+    if not solve_cloudflare:
+        fetch_args += ", solve_cloudflare=False"
+    if not block_ads:
+        fetch_args += ", block_ads=False"
+    if disable_resources:
+        fetch_args += ", disable_resources=True"
+        
     if interactions:
         lines.append("def perform_actions(page):")
         for step in interactions:
@@ -460,12 +594,12 @@ def generate_scrapling_code(history: List[Dict[str, Any]]) -> str:
         
         lines.append("def run_scraper():")
         lines.append(f"    # Fetch the page stealthily and run automation actions")
-        lines.append(f"    response = StealthyFetcher.fetch('{start_url}', headless=True, page_action=perform_actions)")
+        lines.append(f"    response = StealthyFetcher.fetch({fetch_args}, page_action=perform_actions)")
         lines.append("")
     else:
         lines.append("def run_scraper():")
         lines.append(f"    # Fetch page stealthily")
-        lines.append(f"    response = StealthyFetcher.fetch('{start_url}', headless=True)")
+        lines.append(f"    response = StealthyFetcher.fetch({fetch_args})")
         lines.append("")
 
     list_extractions = [step for step in history if step["action"] == "extract_list"]

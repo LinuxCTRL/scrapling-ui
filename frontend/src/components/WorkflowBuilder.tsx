@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { Compass, MousePointerClick, Type, ArrowDown, Sparkles, Copy } from 'lucide-react';
+import { Compass, MousePointerClick, Type, ArrowDown, Sparkles, Copy, Trash2, ChevronUp, ChevronDown, GripVertical } from 'lucide-react';
 
 interface WorkflowStep {
-  action: 'navigate' | 'click' | 'fill' | 'scroll' | 'extract';
+  action: 'navigate' | 'click' | 'fill' | 'scroll' | 'extract' | 'extract_list';
   url?: string;
   selector?: string;
   value?: string;
@@ -13,6 +13,8 @@ interface WorkflowStep {
 
 interface WorkflowBuilderProps {
   history: WorkflowStep[];
+  onDeleteStep?: (idx: number) => void;
+  onReorderSteps?: (draggedIdx: number, targetIdx: number) => void;
 }
 
 // Client-side Scrapling Python code compiler
@@ -32,10 +34,12 @@ const generateFullPythonScript = (steps: WorkflowStep[]): string => {
 
   const interactions = steps.filter(s => ['click', 'fill', 'scroll'].includes(s.action));
   const extractions = steps.filter(s => s.action === 'extract');
+  const listExtractions = steps.filter(s => s.action === 'extract_list');
 
   if (interactions.length > 0) {
     lines.push("def perform_actions(page):");
-    for (const step of interactions) {
+    for (const step of steps) {
+      if (!['click', 'fill', 'scroll'].includes(step.action)) continue;
       const sel = step.selector?.replace(/\\/g, '\\\\') || '';
       if (step.action === 'click') {
         lines.push("    # Click element");
@@ -87,6 +91,33 @@ const generateFullPythonScript = (steps: WorkflowStep[]): string => {
     }
   }
 
+  if (listExtractions.length > 0) {
+    lines.push("    # Extract List Data");
+    for (const step of listExtractions) {
+      const var_name = step.name?.toLowerCase().replace(/\s+/g, '_') || 'data';
+      const sel = step.selector?.replace(/\\/g, '\\\\') || '';
+      const attr = step.attribute;
+
+      if (attr === 'text') {
+        lines.push(`    ${var_name}_list = response.css('${sel}::text').get_all()`);
+      } else if (attr === 'html') {
+        lines.push(`    ${var_name}_list = response.css('${sel}').get_all()`);
+      } else {
+        lines.push(`    ${var_name}_list = response.css('${sel}::attr(${attr})').get_all()`);
+      }
+    }
+    
+    lines.push("");
+    lines.push("    # Print structured table rows");
+    const vars_zip = listExtractions.map(s => s.name?.toLowerCase().replace(/\s+/g, '_') || 'data').join(', ');
+    const vars_list = listExtractions.map(s => (s.name?.toLowerCase().replace(/\s+/g, '_') || 'data') + '_list').join(', ');
+    lines.push(`    for ${vars_zip} in zip(${vars_list}):`);
+    
+    const dict_items = listExtractions.map(s => `'${s.name}': ${s.name?.toLowerCase().replace(/\s+/g, '_') || 'data'}`).join(', ');
+    lines.push(`        print({${dict_items}})`);
+    lines.push("");
+  }
+
   lines.push("if __name__ == '__main__':");
   lines.push("    run_scraper()");
 
@@ -99,13 +130,31 @@ const WorkflowStepCard: React.FC<{
   history: WorkflowStep[];
   getStepIcon: (action: string) => React.ReactNode;
   getStepDescription: (step: WorkflowStep) => React.ReactNode;
-}> = ({ step, idx, history, getStepIcon, getStepDescription }) => {
+  onDelete?: (idx: number) => void;
+  onMoveUp?: (idx: number) => void;
+  onMoveDown?: (idx: number) => void;
+  onDragStart?: (e: React.DragEvent, idx: number) => void;
+  onDragOver?: (e: React.DragEvent, idx: number) => void;
+  onDrop?: (e: React.DragEvent, idx: number) => void;
+}> = ({ 
+  step, 
+  idx, 
+  history, 
+  getStepIcon, 
+  getStepDescription,
+  onDelete,
+  onMoveUp,
+  onMoveDown,
+  onDragStart,
+  onDragOver,
+  onDrop
+}) => {
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedSel, setCopiedSel] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
 
   const copyFullCode = (e: React.MouseEvent) => {
     e.stopPropagation();
-    // Slice history from 0 up to current step (inclusive)
     const historySlice = history.slice(0, idx + 1);
     const fullCode = generateFullPythonScript(historySlice);
     navigator.clipboard.writeText(fullCode);
@@ -123,21 +172,49 @@ const WorkflowStepCard: React.FC<{
   };
 
   return (
-    <div style={{ display: 'flex', gap: '12px', zIndex: 2 }}>
-      {/* Step indicator circle */}
+    <div 
+      draggable={idx > 0} // Don't drag navigation step (usually first step)
+      onDragStart={(e) => onDragStart?.(e, idx)}
+      onDragOver={(e) => onDragOver?.(e, idx)}
+      onDrop={(e) => onDrop?.(e, idx)}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      style={{ 
+        display: 'flex', 
+        gap: '12px', 
+        zIndex: 2,
+        cursor: idx > 0 ? 'grab' : 'default',
+        opacity: 1,
+        transition: 'transform 0.2s ease, box-shadow 0.2s ease'
+      }}
+    >
+      {/* Step indicator circle & Drag handle */}
       <div style={{
         display: 'flex',
+        flexDirection: 'column',
         alignItems: 'center',
-        justifyContent: 'center',
-        width: '22px',
-        height: '22px',
-        borderRadius: '50%',
-        background: 'var(--bg-panel)',
-        border: '2px solid var(--border-light)',
+        gap: '4px',
         flexShrink: 0,
-        marginTop: '1px'
+        marginTop: '4px'
       }}>
-        <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)' }}>{idx + 1}</span>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: '22px',
+          height: '22px',
+          borderRadius: '50%',
+          background: 'var(--bg-panel)',
+          border: '2px solid var(--border-light)',
+        }}>
+          <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)' }}>{idx + 1}</span>
+        </div>
+        
+        {idx > 0 && isHovered && (
+          <div style={{ color: 'var(--text-muted)', cursor: 'grab' }} title="Drag to reorder">
+            <GripVertical size={12} />
+          </div>
+        )}
       </div>
 
       {/* Step card */}
@@ -150,9 +227,55 @@ const WorkflowStepCard: React.FC<{
         display: 'flex',
         flexDirection: 'column',
         gap: '8px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+        position: 'relative'
       }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+        {/* Floating actions (Delete & Move Up/Down) */}
+        {isHovered && (
+          <div style={{
+            position: 'absolute',
+            top: '8px',
+            right: '8px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            background: 'var(--bg-panel)',
+            padding: '2px 4px',
+            borderRadius: '4px',
+            border: '1px solid var(--border-light)',
+            boxShadow: '0 2px 6px rgba(0,0,0,0.2)'
+          }}>
+            {idx > 1 && (
+              <button 
+                onClick={(e) => { e.stopPropagation(); onMoveUp?.(idx); }}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', padding: '2px' }}
+                title="Move step up"
+              >
+                <ChevronUp size={12} />
+              </button>
+            )}
+            {idx > 0 && idx < history.length - 1 && (
+              <button 
+                onClick={(e) => { e.stopPropagation(); onMoveDown?.(idx); }}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', padding: '2px' }}
+                title="Move step down"
+              >
+                <ChevronDown size={12} />
+              </button>
+            )}
+            {idx > 0 && (
+              <button 
+                onClick={(e) => { e.stopPropagation(); onDelete?.(idx); }}
+                style={{ background: 'none', border: 'none', color: 'var(--accent-error)', cursor: 'pointer', display: 'flex', padding: '2px' }}
+                title="Delete this step"
+              >
+                <Trash2 size={12} />
+              </button>
+            )}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', paddingRight: isHovered ? '50px' : '0' }}>
           <div style={{ marginTop: '2px' }}>
             {getStepIcon(step.action)}
           </div>
@@ -222,7 +345,13 @@ const WorkflowStepCard: React.FC<{
   );
 };
 
-export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({ history }) => {
+export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({ 
+  history,
+  onDeleteStep,
+  onReorderSteps
+}) => {
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+
   const getStepIcon = (action: string) => {
     switch (action) {
       case 'navigate':
@@ -235,6 +364,8 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({ history }) => 
         return <ArrowDown size={14} color="#ec4899" />;
       case 'extract':
         return <Sparkles size={14} color="var(--accent-warn)" />;
+      case 'extract_list':
+        return <Sparkles size={14} color="var(--accent-secondary)" />;
       default:
         return null;
     }
@@ -291,8 +422,55 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({ history }) => 
             </div>
           </div>
         );
+      case 'extract_list':
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            <div>
+              <span style={{ fontWeight: 600, color: 'var(--accent-secondary)' }}>Extract list column </span>
+              <span>as </span>
+              <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{step.name}</span>
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+              Selector: <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)', wordBreak: 'break-all' }}>{step.selector}</span>
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+              Attribute: <span style={{ color: 'var(--accent-secondary)' }}>{step.attribute}</span>
+            </div>
+          </div>
+        );
       default:
         return null;
+    }
+  };
+
+  // Drag and Drop reordering handlers
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    setDraggedIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (draggedIndex !== null && draggedIndex !== index && index > 0) {
+      onReorderSteps?.(draggedIndex, index);
+    }
+    setDraggedIndex(null);
+  };
+
+  // Move via Button helpers
+  const handleMoveUp = (index: number) => {
+    if (index > 1) {
+      onReorderSteps?.(index, index - 1);
+    }
+  };
+
+  const handleMoveDown = (index: number) => {
+    if (index < history.length - 1) {
+      onReorderSteps?.(index, index + 1);
     }
   };
 
@@ -320,6 +498,12 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({ history }) => 
               history={history}
               getStepIcon={getStepIcon}
               getStepDescription={getStepDescription}
+              onDelete={onDeleteStep}
+              onMoveUp={handleMoveUp}
+              onMoveDown={handleMoveDown}
+              onDragStart={handleDragStart}
+              onDragOver={handleDragOver}
+              onDrop={handleDrop}
             />
           ))}
         </div>
