@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Play, Square, Sparkles, Network, Eye, Layers, ChevronLeft, ChevronRight, Download, Upload } from 'lucide-react';
+import { Play, Square, Sparkles, Network, Eye, Layers, ChevronLeft, ChevronRight, Download, Upload, Globe } from 'lucide-react';
 import { CanvasView } from './components/CanvasView';
 import { ElementsTree } from './components/ElementsTree';
 import { NetworkPanel } from './components/NetworkPanel';
@@ -739,6 +739,56 @@ function App() {
           )}
         </section>
       </main>
+
+      {/* Premium Studio Footer */}
+      <footer className="app-footer">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: 'var(--text-secondary)' }}>
+            <span style={{
+              width: '8px',
+              height: '8px',
+              borderRadius: '50%',
+              backgroundColor: sessionId ? 'var(--accent-secondary)' : 'var(--text-muted)',
+              boxShadow: sessionId ? '0 0 8px var(--accent-secondary)' : 'none',
+              display: 'inline-block'
+            }} />
+            {sessionId ? `Session: ${sessionId.slice(0, 8)}...` : 'No active browser session'}
+          </div>
+          {sessionId && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--text-muted)', borderLeft: '1px solid var(--border-light)', paddingLeft: '20px' }}>
+              <Globe size={11} />
+              <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', maxWidth: '300px' }}>{url}</span>
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--text-secondary)' }}>
+            <Network size={12} color="var(--accent-primary)" />
+            <span>{networkLogs.length} Requests Logs</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--text-secondary)', borderLeft: '1px solid var(--border-light)', paddingLeft: '20px' }}>
+            <Layers size={12} color="var(--accent-secondary)" />
+            <span>{history.length} Recipe Steps</span>
+          </div>
+          {sessionId && (
+            <div style={{ display: 'flex', gap: '8px', borderLeft: '1px solid var(--border-light)', paddingLeft: '20px' }}>
+              {solveCloudflare && (
+                <span className="footer-badge" title="Cloudflare Bypass Enabled">CF</span>
+              )}
+              {blockAds && (
+                <span className="footer-badge" title="Ad Blocker Active">AD</span>
+              )}
+              {disableResources && (
+                <span className="footer-badge" title="Resource Blocking Enabled">SPEED</span>
+              )}
+            </div>
+          )}
+          <div style={{ fontSize: '11px', color: 'var(--text-muted)', borderLeft: '1px solid var(--border-light)', paddingLeft: '20px' }}>
+            Scrapling UI v1.2.0
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
