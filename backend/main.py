@@ -1,321 +1,41 @@
 import os
 import uuid
-import base64
-import asyncio
+import re
 from typing import Dict, List, Any, Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 from contextlib import asynccontextmanager
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 
-from dom_extractor import DOM_EXTRACTOR_JS
-
-class StartSessionRequest(BaseModel):
-    url: str
-    width: int = 1280
-    height: int = 800
-    solve_cloudflare: bool = True
-    block_ads: bool = True
-    disable_resources: bool = False
-
-class ActionRequest(BaseModel):
-    session_id: str
-    action_type: str  # "click", "fill", "scroll", "navigate", "extract"
-    selector: Optional[str] = None
-    value: Optional[str] = None  # Text to type, or extractor details
-    x: Optional[int] = None
-    y: Optional[int] = None
-    extract_name: Optional[str] = None
-    extract_attribute: Optional[str] = None  # "text", "html", or specific attribute like "href"
-
-class CloseSessionRequest(BaseModel):
-    session_id: str
-
-class GenerateCodeRequest(BaseModel):
-    session_id: str
-
-class Session:
-    def __init__(self, session_id: str, browser: Browser, context: BrowserContext, page: Page, solve_cloudflare: bool = True, block_ads: bool = True, disable_resources: bool = False):
-        self.session_id = session_id
-        self.browser = browser
-        self.context = context
-        self.page = page
-        self.solve_cloudflare = solve_cloudflare
-        self.block_ads = block_ads
-        self.disable_resources = disable_resources
-        self.network_logs: List[Dict[str, Any]] = []
-        self.history: List[Dict[str, Any]] = []
-        self._request_map = {}
-
-        # Set up listeners
-        self.page.on("request", self._handle_request)
-        self.page.on("response", self._handle_response)
-
-    async def _handle_request(self, request):
-        req_id = str(uuid.uuid4())
-        self._request_map[request] = req_id
-        
-        post_data = None
-        try:
-            post_data = request.post_data
-        except Exception:
-            pass
-
-        self.network_logs.append({
-            "id": req_id,
-            "url": request.url,
-            "method": request.method,
-            "resource_type": request.resource_type,
-            "request_headers": dict(request.headers),
-            "post_data": post_data,
-            "status": None,
-            "response_headers": None,
-            "response_body": None,
-            "size": 0,
-        })
-
-    async def _handle_response(self, response):
-        request = response.request
-        req_id = self._request_map.get(request)
-        
-        entry = None
-        if req_id:
-            for log in self.network_logs:
-                if log["id"] == req_id:
-                    entry = log
-                    break
-        else:
-            for log in reversed(self.network_logs):
-                if log["url"] == response.url and log["method"] == request.method and log["status"] is None:
-                    entry = log
-                    break
-
-        if not entry:
-            return
-
-        entry["status"] = response.status
-        try:
-            entry["response_headers"] = dict(response.headers)
-        except Exception:
-            pass
-        
-        try:
-            sizes = await response.sizes()
-            entry["size"] = sizes.get("responseHeadersSize", 0) + sizes.get("responseBodySize", 0)
-        except Exception:
-            pass
-
-        try:
-            content_type = response.headers.get("content-type", "").lower()
-            if any(t in content_type for t in ["json", "text", "xml", "javascript", "html"]):
-                body = await response.text()
-                if len(body) > 50000:
-                    entry["response_body"] = body[:50000] + "\n... [TRUNCATED]"
-                else:
-                    entry["response_body"] = body
-            else:
-                entry["response_body"] = "[Non-text response]"
-        except Exception:
-            entry["response_body"] = "[Body reading failed/aborted]"
-
-    async def get_state(self):
-        # Wait a small bit for any rendering/animations to settle
-        await asyncio.sleep(0.5)
-
-        # Capture full page screenshot so the user can scroll it in the canvas
-        screenshot_bytes = await self.page.screenshot(type="jpeg", quality=80, full_page=True)
-        screenshot_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
-        screenshot_data_uri = f"data:image/jpeg;base64,{screenshot_b64}"
-        
-        # DOM Tree
-        try:
-            dom_tree = await self.page.evaluate(DOM_EXTRACTOR_JS)
-        except Exception as e:
-            print(f"Error evaluating DOM Extractor JS: {e}")
-            dom_tree = None
-
-        return {
-            "session_id": self.session_id,
-            "screenshot": screenshot_data_uri,
-            "dom_tree": dom_tree,
-            "network_logs": self.network_logs,
-            "history": self.history,
-            "scraped_data": await self.get_scraped_data()
-        }
-
-    async def get_scraped_data(self) -> List[Dict[str, str]]:
-        list_steps = [s for s in self.history if s["action"] == "extract_list"]
-        if not list_steps:
-            return []
-            
-        columns = {}
-        max_len = 0
-        for step in list_steps:
-            name = step.get("name", "data")
-            selector = step.get("selector", "")
-            attr = step.get("attribute", "text")
-            escaped_selector = selector.replace("'", "\\'")
-            
-            js_query = f"""
-            () => {{
-                try {{
-                    const elms = document.querySelectorAll('{escaped_selector}');
-                    return Array.from(elms).map(el => {{
-                        if ('{attr}' === 'text') return el.textContent ? el.textContent.trim() : '';
-                        if ('{attr}' === 'html') return el.innerHTML || '';
-                        return el.getAttribute('{attr}') || '';
-                    }});
-                }} catch (e) {{
-                    return [];
-                }}
-            }}
-            """
-            try:
-                vals = await self.page.evaluate(js_query)
-                columns[name] = vals
-                max_len = max(max_len, len(vals))
-            except Exception as e:
-                print(f"Error executing list extraction: {e}")
-                columns[name] = []
-                
-        rows = []
-        for i in range(max_len):
-            row = {}
-            for name in columns:
-                row[name] = columns[name][i] if i < len(columns[name]) else ""
-            rows.append(row)
-        return rows
-
-    async def replay_history(self, new_history: List[Dict[str, Any]]):
-        self.history = []
-        self.network_logs = []
-        self._request_map = {}
-        
-        # Find the navigate action
-        start_url = None
-        for step in new_history:
-            if step["action"] == "navigate":
-                start_url = step.get("url")
-                break
-                
-        if not start_url:
-            return
-            
-        try:
-            await self.page.goto(start_url, wait_until="load", timeout=30000)
-            self.history.append({"action": "navigate", "url": start_url})
-        except Exception as e:
-            print(f"Failed to navigate during replay: {e}")
-            raise Exception(f"Failed to navigate to {start_url}: {e}")
-            
-        for step in new_history:
-            action = step["action"]
-            if action == "navigate":
-                continue
-                
-            try:
-                if action == "click":
-                    selector = step["selector"]
-                    await self.page.click(selector, timeout=5000)
-                    self.history.append({"action": "click", "selector": selector})
-                    
-                elif action == "fill":
-                    selector = step["selector"]
-                    val = step["value"]
-                    await self.page.fill(selector, val, timeout=5000)
-                    self.history.append({"action": "fill", "selector": selector, "value": val})
-                    
-                elif action == "scroll":
-                    y = step.get("y", 300)
-                    await self.page.evaluate(f"window.scrollBy(0, {y})")
-                    self.history.append({"action": "scroll", "y": y})
-                    await asyncio.sleep(1.0)
-                    
-                elif action == "extract":
-                    self.history.append({
-                        "action": "extract",
-                        "name": step["name"],
-                        "selector": step["selector"],
-                        "attribute": step["attribute"]
-                    })
-                    
-                elif action == "extract_list":
-                    self.history.append({
-                        "action": "extract_list",
-                        "name": step["name"],
-                        "selector": step["selector"],
-                        "attribute": step["attribute"]
-                    })
-                    
-                elif action == "back":
-                    try:
-                        await self.page.go_back(timeout=5000)
-                    except Exception:
-                        pass
-                    self.history.append({"action": "back"})
-                    
-                elif action == "forward":
-                    try:
-                        await self.page.go_forward(timeout=5000)
-                    except Exception:
-                        pass
-                    self.history.append({"action": "forward"})
-                    
-                elif action == "reload":
-                    await self.page.reload(timeout=20000)
-                    self.history.append({"action": "reload"})
-            except Exception as e:
-                print(f"Replay failed on step {step}: {e}")
-                raise Exception(f"Failed to replay step '{action}' on '{step.get('selector', '')}': {str(e)}")
-
-    async def close(self):
-        try:
-            await self.page.close()
-            await self.context.close()
-        except Exception as e:
-            print(f"Error closing session: {e}")
-
-class PlaywrightManager:
-    def __init__(self):
-        self.playwright = None
-        self.browser = None
-
-    async def start(self):
-        if not self.playwright:
-            self.playwright = await async_playwright().start()
-            # Launch Chromium with args to disable CORS and allow mixed content
-            self.browser = await self.playwright.chromium.launch(
-                headless=True,
-                args=[
-                    "--disable-web-security",
-                    "--allow-running-insecure-content",
-                    "--disable-site-isolation-trials"
-                ]
-            )
-
-    async def stop(self):
-        if self.browser:
-            await self.browser.close()
-        if self.playwright:
-            await self.playwright.stop()
-
-pw_manager = PlaywrightManager()
-active_sessions: Dict[str, Session] = {}
+# Local module imports
+from models import (
+    StartSessionRequest,
+    ActionRequest,
+    CloseSessionRequest,
+    GenerateCodeRequest,
+    UpdateHistoryRequest,
+    RunCodeRequest,
+    TodoListUpdateRequest
+)
+from browser_manager import pw_manager
+from session import Session, active_sessions
+from code_generator import generate_scrapling_code
+from code_runner import execute_run_code
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Initialize Playwright browser manager
     await pw_manager.start()
     yield
-    # Clean up sessions
+    # Clean up active browser sessions
     for session in list(active_sessions.values()):
         await session.close()
     active_sessions.clear()
+    # Close browser manager
     await pw_manager.stop()
 
 app = FastAPI(lifespan=lifespan)
 
-# Add CORS Middleware
+# Configure CORS Middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -358,25 +78,17 @@ async def start_session(req: StartSessionRequest):
                 # Speed Mode: block media, fonts, images, stylesheets
                 if req.disable_resources and resource_type in ["image", "media", "font", "stylesheet"]:
                     await route.abort()
-                    return
-                    
-                # Ad/Tracker Blocking
-                if req.block_ads:
-                    ad_keywords = [
-                        "google-analytics", "doubleclick", "adservice", "analytics.js", 
-                        "adsbygoogle", "adnxs", "taboola", "outbrain", "hotjar", 
-                        "adroll", "quantserve", "scorecardresearch", "facebook.net"
-                    ]
-                    if any(kw in url for kw in ad_keywords):
-                        await route.abort()
-                        return
-                        
-                await route.continue_()
-                
+                # Ad Blocking: check simple ad-blocking patterns
+                elif req.block_ads and any(ad_word in url for ad_word in ["googleads", "googlesyndication", "doubleclick", "adservice", "analytics", "telemetry"]):
+                    await route.abort()
+                else:
+                    await route.continue_()
+            
             await page.route("**/*", route_filter)
-
-        # Navigate to target URL
+            
+        # Add a default navigate step in history
         session.history.append({"action": "navigate", "url": req.url})
+        
         await page.goto(req.url, wait_until="load", timeout=30000)
         
         return await session.get_state()
@@ -465,10 +177,6 @@ async def execute_action(req: ActionRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Action failed: {str(e)}")
 
-class UpdateHistoryRequest(BaseModel):
-    session_id: str
-    history: List[Dict[str, Any]]
-
 @app.post("/api/session/update-history")
 async def update_history(req: UpdateHistoryRequest):
     session = active_sessions.get(req.session_id)
@@ -499,227 +207,12 @@ async def generate_code(req: GenerateCodeRequest):
         
     return {"code": generate_scrapling_code(session.history)}
 
-class RunCodeRequest(BaseModel):
-    code: str
-    session_id: Optional[str] = None
-
-def make_code_async(code: str) -> str:
-    normalized = code
-    methods = ["click", "fill", "wait_for_load_state", "evaluate", "wait_for_timeout", "go_back", "go_forward", "reload"]
-    for method in methods:
-        normalized = normalized.replace(f"await page.{method}(", f"page.{method}(")
-    normalized = normalized.replace("def perform_actions(page):", "async def perform_actions(page):")
-    for method in methods:
-        normalized = normalized.replace(f"page.{method}(", f"await page.{method}(")
-    return normalized
-
 @app.post("/api/run-code")
 async def run_code(req: RunCodeRequest):
-    import sys
-    import tempfile
-    import io
-    import traceback
-    from contextlib import redirect_stdout, redirect_stderr
-    
-    session = active_sessions.get(req.session_id) if req.session_id else None
-    
-    if session:
-        stdout_buf = io.StringIO()
-        stderr_buf = io.StringIO()
-        async_code = make_code_async(req.code)
-        
-        try:
-            with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
-                local_vars = {}
-                exec(async_code, globals(), local_vars)
-                perform_actions = local_vars.get("perform_actions")
-                if perform_actions:
-                    await perform_actions(session.page)
-            
-            exit_code = 1 if stderr_buf.getvalue() else 0
-            state = await session.get_state()
-            return {
-                "stdout": stdout_buf.getvalue() or "Script executed successfully on the active browser page.",
-                "stderr": stderr_buf.getvalue(),
-                "exit_code": exit_code,
-                "state": state
-            }
-        except Exception as e:
-            err_msg = traceback.format_exc()
-            return {
-                "stdout": stdout_buf.getvalue(),
-                "stderr": err_msg,
-                "exit_code": 1,
-                "state": await session.get_state()
-            }
-    else:
-        try:
-            with tempfile.NamedTemporaryFile(suffix=".py", delete=False, mode="w") as f:
-                f.write(req.code)
-                temp_file_path = f.name
-                
-            process = await asyncio.create_subprocess_exec(
-                sys.executable, temp_file_path,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            
-            stdout, stderr = await process.communicate()
-            
-            if os.path.exists(temp_file_path):
-                os.remove(temp_file_path)
-                
-            return {
-                "stdout": stdout.decode("utf-8", errors="ignore"),
-                "stderr": stderr.decode("utf-8", errors="ignore"),
-                "exit_code": process.returncode,
-                "state": None
-            }
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to run code: {str(e)}")
-
-def generate_scrapling_code(
-    history: List[Dict[str, Any]],
-    solve_cloudflare: bool = True,
-    block_ads: bool = True,
-    disable_resources: bool = False
-) -> str:
-    lines = []
-    lines.append("# Generated by Scrapling Visual Builder")
-    lines.append("from scrapling.fetchers import StealthyFetcher")
-    lines.append("")
-    
-    start_url = "https://example.com"
-    for step in history:
-        if step["action"] == "navigate":
-            start_url = step["url"]
-            break
-
-    interactions = [step for step in history if step["action"] in ["click", "fill", "scroll", "back", "forward", "reload"]]
-    extractions = [step for step in history if step["action"] == "extract"]
-    
-    # Build dynamic fetch arguments
-    fetch_args = f"'{start_url}', headless=True"
-    if not solve_cloudflare:
-        fetch_args += ", solve_cloudflare=False"
-    if not block_ads:
-        fetch_args += ", block_ads=False"
-    if disable_resources:
-        fetch_args += ", disable_resources=True"
-        
-    if interactions:
-        lines.append("def perform_actions(page):")
-        for step in interactions:
-            action = step["action"]
-            selector = step.get("selector", "").replace('\\', '\\\\')
-            
-            if action == "click":
-                lines.append(f"    # Click element")
-                lines.append(f"    page.click('{selector}')")
-                lines.append("    page.wait_for_load_state('load')")
-                lines.append("")
-            elif action == "fill":
-                lines.append(f"    # Fill input field")
-                lines.append(f"    page.fill('{selector}', '{step['value']}')")
-                lines.append("")
-            elif action == "scroll":
-                lines.append(f"    # Scroll page")
-                lines.append(f"    page.evaluate('window.scrollBy(0, {step['y']})')")
-                lines.append("    page.wait_for_timeout(1000)")
-                lines.append("")
-            elif action == "back":
-                lines.append("    # Go back in history")
-                lines.append("    page.go_back()")
-                lines.append("    page.wait_for_load_state('load')")
-                lines.append("")
-            elif action == "forward":
-                lines.append("    # Go forward in history")
-                lines.append("    page.go_forward()")
-                lines.append("    page.wait_for_load_state('load')")
-                lines.append("")
-            elif action == "reload":
-                lines.append("    # Reload page")
-                lines.append("    page.reload()")
-                lines.append("    page.wait_for_load_state('load')")
-                lines.append("")
-        
-        lines.append("def run_scraper():")
-        lines.append(f"    # Fetch the page stealthily and run automation actions")
-        lines.append(f"    response = StealthyFetcher.fetch({fetch_args}, page_action=perform_actions)")
-        lines.append("")
-    else:
-        lines.append("def run_scraper():")
-        lines.append(f"    # Fetch page stealthily")
-        lines.append(f"    response = StealthyFetcher.fetch({fetch_args})")
-        lines.append("")
-
-    list_extractions = [step for step in history if step["action"] == "extract_list"]
-
-    if extractions:
-        lines.append("    # Extract data")
-        for step in extractions:
-            var_name = step.get("name", "data").lower().replace(" ", "_")
-            selector = step["selector"].replace('\\', '\\\\')
-            attr = step["attribute"]
-            
-            if attr == "text":
-                lines.append(f"    # Get text from '{selector}'")
-                lines.append(f"    {var_name} = response.css('{selector}::text').get_all()")
-            elif attr == "html":
-                lines.append(f"    # Get HTML content")
-                lines.append(f"    {var_name} = response.css('{selector}').get_all()")
-            else:
-                lines.append(f"    # Get '{attr}' attribute")
-                lines.append(f"    {var_name} = response.css('{selector}::attr({attr})').get_all()")
-                
-            lines.append(f"    print('{step['name']}:', {var_name})")
-            lines.append("")
-
-    if list_extractions:
-        lines.append("    # Extract List Data")
-        for step in list_extractions:
-            var_name = step.get("name", "data").lower().replace(" ", "_")
-            selector = step["selector"].replace('\\', '\\\\')
-            attr = step["attribute"]
-            
-            if attr == "text":
-                lines.append(f"    {var_name}_list = response.css('{selector}::text').get_all()")
-            elif attr == "html":
-                lines.append(f"    {var_name}_list = response.css('{selector}').get_all()")
-            else:
-                lines.append(f"    {var_name}_list = response.css('{selector}::attr({attr})').get_all()")
-        
-        lines.append("")
-        lines.append("    # Print structured table rows")
-        vars_zip = ", ".join([f"{step['name'].lower().replace(' ', '_')}" for step in list_extractions])
-        vars_list = ", ".join([f"{step['name'].lower().replace(' ', '_')}_list" for step in list_extractions])
-        lines.append(f"    for {vars_zip} in zip({vars_list}):")
-        
-        dict_items = ", ".join([f"'{step['name']}': {step['name'].lower().replace(' ', '_')}" for step in list_extractions])
-        lines.append(f"        print({{{dict_items}}})")
-        lines.append("")
-            
-    lines.append("if __name__ == '__main__':")
-    lines.append("    run_scraper()")
-    
-    return "\n".join(lines)
-
-
-# Pydantic models for Todo List
-class SubTaskModel(BaseModel):
-    text: str
-    checked: bool
-
-class TaskModel(BaseModel):
-    title: str
-    checked: bool
-    status: str
-    subtasks: List[SubTaskModel]
-
-class TodoListUpdateRequest(BaseModel):
-    tasks: List[TaskModel]
-
-import re
+    try:
+        return await execute_run_code(req)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 TODO_FILE_PATH = "/home/soufiane/Work/ai-scraper/todo_list.md"
 ARTIFACT_TODO_PATH = "/home/soufiane/.gemini/antigravity-cli/brain/9c5acae8-27b0-4ae5-b750-ed8631c345a2/todo_list.md"
@@ -740,7 +233,6 @@ async def get_todo_list():
     current_task = None
     
     for line in lines:
-        # Match main task: - [ ] **Visual List Extraction (Multi-Item Scraper)** `[ACTIVE]`
         main_match = re.match(r'^\s*-\s*\[([ xX])\]\s*\*\*(.*?)\*\*(?:\s*`\[(.*?)\]`)?', line)
         if main_match:
             checked = main_match.group(1).lower() == 'x'
@@ -802,7 +294,6 @@ async def update_todo_list(req: TodoListUpdateRequest):
         
     md_content = "\n".join(lines) + "\n"
     
-    # Save to both paths to keep them fully in sync
     for path in [TODO_FILE_PATH, ARTIFACT_TODO_PATH]:
         try:
             dir_name = os.path.dirname(path)
@@ -814,4 +305,3 @@ async def update_todo_list(req: TodoListUpdateRequest):
             print(f"Failed to write todo list to {path}: {e}")
             
     return {"status": "success", "tasks": req.tasks}
-

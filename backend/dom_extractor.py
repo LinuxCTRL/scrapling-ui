@@ -6,7 +6,7 @@ DOM_EXTRACTOR_JS = """
     // If element has a unique ID, use it
     if (el.id) {
       try {
-        const idSelector = /^\d/.test(el.id) ? `[id="${el.id}"]` : `#${CSS.escape(el.id)}`;
+        const idSelector = /^\\d/.test(el.id) ? `[id="${el.id}"]` : `#${CSS.escape(el.id)}`;
         if (document.querySelectorAll(idSelector).length === 1) {
           return idSelector;
         }
@@ -18,7 +18,7 @@ DOM_EXTRACTOR_JS = """
     while (current && current.nodeType === Node.ELEMENT_NODE) {
       let selector = current.nodeName.toLowerCase();
       if (current.id) {
-        selector = /^\d/.test(current.id) ? `[id="${current.id}"]` : '#' + CSS.escape(current.id);
+        selector = /^\\d/.test(current.id) ? `[id="${current.id}"]` : '#' + CSS.escape(current.id);
         path.unshift(selector);
         break; // IDs are highly specific
       }
