@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { Compass, MousePointerClick, Type, ArrowDown, Sparkles, Copy, Trash2, ChevronUp, ChevronDown, GripVertical } from 'lucide-react';
+import { Compass, MousePointerClick, Type, ArrowDown, Sparkles, Copy, Trash2, ChevronUp, ChevronDown, GripVertical, ArrowLeft, ArrowRight, RotateCw } from 'lucide-react';
 
 interface WorkflowStep {
-  action: 'navigate' | 'click' | 'fill' | 'scroll' | 'extract' | 'extract_list';
+  action: 'navigate' | 'click' | 'fill' | 'scroll' | 'extract' | 'extract_list' | 'back' | 'forward' | 'reload';
   url?: string;
   selector?: string;
   value?: string;
@@ -32,14 +32,14 @@ const generateFullPythonScript = (steps: WorkflowStep[]): string => {
     }
   }
 
-  const interactions = steps.filter(s => ['click', 'fill', 'scroll'].includes(s.action));
+  const interactions = steps.filter(s => ['click', 'fill', 'scroll', 'back', 'forward', 'reload'].includes(s.action));
   const extractions = steps.filter(s => s.action === 'extract');
   const listExtractions = steps.filter(s => s.action === 'extract_list');
 
   if (interactions.length > 0) {
     lines.push("def perform_actions(page):");
     for (const step of steps) {
-      if (!['click', 'fill', 'scroll'].includes(step.action)) continue;
+      if (!['click', 'fill', 'scroll', 'back', 'forward', 'reload'].includes(step.action)) continue;
       const sel = step.selector?.replace(/\\/g, '\\\\') || '';
       if (step.action === 'click') {
         lines.push("    # Click element");
@@ -54,6 +54,21 @@ const generateFullPythonScript = (steps: WorkflowStep[]): string => {
         lines.push("    # Scroll page");
         lines.push(`    page.evaluate('window.scrollBy(0, ${step.y})')`);
         lines.push("    page.wait_for_timeout(1000)");
+        lines.push("");
+      } else if (step.action === 'back') {
+        lines.push("    # Go back in history");
+        lines.push("    page.go_back()");
+        lines.push("    page.wait_for_load_state('load')");
+        lines.push("");
+      } else if (step.action === 'forward') {
+        lines.push("    # Go forward in history");
+        lines.push("    page.go_forward()");
+        lines.push("    page.wait_for_load_state('load')");
+        lines.push("");
+      } else if (step.action === 'reload') {
+        lines.push("    # Reload page");
+        lines.push("    page.reload()");
+        lines.push("    page.wait_for_load_state('load')");
         lines.push("");
       }
     }
@@ -366,6 +381,12 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({
         return <Sparkles size={14} color="var(--accent-warn)" />;
       case 'extract_list':
         return <Sparkles size={14} color="var(--accent-secondary)" />;
+      case 'back':
+        return <ArrowLeft size={14} color="var(--accent-secondary)" />;
+      case 'forward':
+        return <ArrowRight size={14} color="var(--accent-secondary)" />;
+      case 'reload':
+        return <RotateCw size={14} color="var(--accent-secondary)" />;
       default:
         return null;
     }
@@ -436,6 +457,27 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({
             <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
               Attribute: <span style={{ color: 'var(--accent-secondary)' }}>{step.attribute}</span>
             </div>
+          </div>
+        );
+      case 'back':
+        return (
+          <div>
+            <span style={{ fontWeight: 600 }}>Go back </span>
+            <span style={{ color: 'var(--text-muted)' }}>in browser history</span>
+          </div>
+        );
+      case 'forward':
+        return (
+          <div>
+            <span style={{ fontWeight: 600 }}>Go forward </span>
+            <span style={{ color: 'var(--text-muted)' }}>in browser history</span>
+          </div>
+        );
+      case 'reload':
+        return (
+          <div>
+            <span style={{ fontWeight: 600 }}>Reload </span>
+            <span style={{ color: 'var(--text-muted)' }}>active page</span>
           </div>
         );
       default:

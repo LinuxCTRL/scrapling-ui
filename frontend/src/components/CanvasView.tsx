@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { MousePointerClick, Type, Sparkles, AlertCircle } from 'lucide-react';
+import { MousePointerClick, Type, Sparkles, AlertCircle, ArrowLeft, ArrowRight, RotateCw } from 'lucide-react';
 
 interface DOMNode {
   tag: string;
@@ -234,15 +234,50 @@ export const CanvasView: React.FC<CanvasViewProps> = ({
 
   return (
     <div className="canvas-container" onMouseLeave={handleMouseLeave}>
-      <div className="canvas-toolbar">
-        <span style={{ fontSize: '13px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <Sparkles size={14} color="var(--accent-secondary)" />
-          Interactive Headless Canvas (1280x800 Viewport)
-        </span>
+      <div className="canvas-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <span style={{ fontSize: '13px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Sparkles size={14} color="var(--accent-secondary)" />
+            Interactive Headless Canvas (1280x800 Viewport)
+          </span>
+
+          {screenshot && (
+            <div style={{ display: 'flex', gap: '4px', borderLeft: '1px solid var(--border-light)', paddingLeft: '12px' }}>
+              <button
+                className="btn btn-secondary"
+                disabled={isLoading}
+                onClick={() => onExecuteAction('back', '')}
+                style={{ width: '24px', height: '24px', padding: 0, borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                title="Go Back"
+              >
+                <ArrowLeft size={12} />
+              </button>
+              <button
+                className="btn btn-secondary"
+                disabled={isLoading}
+                onClick={() => onExecuteAction('forward', '')}
+                style={{ width: '24px', height: '24px', padding: 0, borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                title="Go Forward"
+              >
+                <ArrowRight size={12} />
+              </button>
+              <button
+                className="btn btn-secondary"
+                disabled={isLoading}
+                onClick={() => onExecuteAction('reload', '')}
+                style={{ width: '24px', height: '24px', padding: 0, borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                title="Reload Page"
+              >
+                <RotateCw size={12} />
+              </button>
+            </div>
+          )}
+        </div>
+        
         {isLoading && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <div className="loader"></div>
-            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Executing browser action...</span>
+            <div className="loader" style={{ width: '12px', height: '12px', borderWidth: '2px' }}></div>
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Executing browser action...</span>
           </div>
         )}
       </div>

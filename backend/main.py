@@ -247,6 +247,18 @@ class Session:
                         "selector": step["selector"],
                         "attribute": step["attribute"]
                     })
+                    
+                elif action == "back":
+                    await self.page.go_back(timeout=10000)
+                    self.history.append({"action": "back"})
+                    
+                elif action == "forward":
+                    await self.page.go_forward(timeout=10000)
+                    self.history.append({"action": "forward"})
+                    
+                elif action == "reload":
+                    await self.page.reload(timeout=20000)
+                    self.history.append({"action": "reload"})
             except Exception as e:
                 print(f"Replay failed on step {step}: {e}")
                 raise Exception(f"Failed to replay step '{action}' on '{step.get('selector', '')}': {str(e)}")
@@ -422,6 +434,18 @@ async def execute_action(req: ActionRequest):
                 "attribute": req.extract_attribute
             })
             
+        elif req.action_type == "back":
+            session.history.append({"action": "back"})
+            await session.page.go_back(timeout=10000)
+            
+        elif req.action_type == "forward":
+            session.history.append({"action": "forward"})
+            await session.page.go_forward(timeout=10000)
+            
+        elif req.action_type == "reload":
+            session.history.append({"action": "reload"})
+            await session.page.reload(timeout=20000)
+            
         else:
             raise HTTPException(status_code=400, detail=f"Unknown action type: {req.action_type}")
             
@@ -469,7 +493,7 @@ class RunCodeRequest(BaseModel):
 
 def make_code_async(code: str) -> str:
     normalized = code
-    methods = ["click", "fill", "wait_for_load_state", "evaluate", "wait_for_timeout"]
+    methods = ["click", "fill", "wait_for_load_state", "evaluate", "wait_for_timeout", "go_back", "go_forward", "reload"]
     for method in methods:
         normalized = normalized.replace(f"await page.{method}(", f"page.{method}(")
     normalized = normalized.replace("def perform_actions(page):", "async def perform_actions(page):")
@@ -559,7 +583,7 @@ def generate_scrapling_code(
             start_url = step["url"]
             break
 
-    interactions = [step for step in history if step["action"] in ["click", "fill", "scroll"]]
+    interactions = [step for step in history if step["action"] in ["click", "fill", "scroll", "back", "forward", "reload"]]
     extractions = [step for step in history if step["action"] == "extract"]
     
     # Build dynamic fetch arguments
@@ -590,6 +614,21 @@ def generate_scrapling_code(
                 lines.append(f"    # Scroll page")
                 lines.append(f"    page.evaluate('window.scrollBy(0, {step['y']})')")
                 lines.append("    page.wait_for_timeout(1000)")
+                lines.append("")
+            elif action == "back":
+                lines.append("    # Go back in history")
+                lines.append("    page.go_back()")
+                lines.append("    page.wait_for_load_state('load')")
+                lines.append("")
+            elif action == "forward":
+                lines.append("    # Go forward in history")
+                lines.append("    page.go_forward()")
+                lines.append("    page.wait_for_load_state('load')")
+                lines.append("")
+            elif action == "reload":
+                lines.append("    # Reload page")
+                lines.append("    page.reload()")
+                lines.append("    page.wait_for_load_state('load')")
                 lines.append("")
         
         lines.append("def run_scraper():")

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Play, Copy, Check, Terminal, Loader } from 'lucide-react';
 
 interface CodeRunnerProps {
@@ -28,7 +28,7 @@ const compileToFramework = (
     }
   }
   
-  const interactions = steps.filter(s => ['click', 'fill', 'scroll'].includes(s.action));
+  const interactions = steps.filter(s => ['click', 'fill', 'scroll', 'back', 'forward', 'reload'].includes(s.action));
   const extractions = steps.filter(s => s.action === 'extract');
   const listExtractions = steps.filter(s => s.action === 'extract_list');
   
@@ -46,7 +46,7 @@ const compileToFramework = (
     if (interactions.length > 0) {
       lines.push("def perform_actions(page):");
       for (const step of steps) {
-        if (!['click', 'fill', 'scroll'].includes(step.action)) continue;
+        if (!['click', 'fill', 'scroll', 'back', 'forward', 'reload'].includes(step.action)) continue;
         const sel = step.selector?.replace(/\\/g, '\\\\') || '';
         if (step.action === 'click') {
           lines.push("    # Click element");
@@ -61,6 +61,21 @@ const compileToFramework = (
           lines.push("    # Scroll page");
           lines.push(`    page.evaluate('window.scrollBy(0, ${step.y})')`);
           lines.push("    page.wait_for_timeout(1000)");
+          lines.push("");
+        } else if (step.action === 'back') {
+          lines.push("    # Go back in history");
+          lines.push("    page.go_back()");
+          lines.push("    page.wait_for_load_state('load')");
+          lines.push("");
+        } else if (step.action === 'forward') {
+          lines.push("    # Go forward in history");
+          lines.push("    page.go_forward()");
+          lines.push("    page.wait_for_load_state('load')");
+          lines.push("");
+        } else if (step.action === 'reload') {
+          lines.push("    # Reload page");
+          lines.push("    page.reload()");
+          lines.push("    page.wait_for_load_state('load')");
           lines.push("");
         }
       }
@@ -128,7 +143,7 @@ const compileToFramework = (
     if (interactions.length > 0) {
       lines.push("async def perform_actions(page):");
       for (const step of steps) {
-        if (!['click', 'fill', 'scroll'].includes(step.action)) continue;
+        if (!['click', 'fill', 'scroll', 'back', 'forward', 'reload'].includes(step.action)) continue;
         const sel = step.selector?.replace(/\\/g, '\\\\') || '';
         if (step.action === 'click') {
           lines.push("    # Click element");
@@ -143,6 +158,21 @@ const compileToFramework = (
           lines.push("    # Scroll page");
           lines.push(`    await page.evaluate('window.scrollBy(0, ${step.y})')`);
           lines.push("    await page.wait_for_timeout(1000)");
+          lines.push("");
+        } else if (step.action === 'back') {
+          lines.push("    # Go back in history");
+          lines.push("    await page.go_back()");
+          lines.push("    await page.wait_for_load_state('load')");
+          lines.push("");
+        } else if (step.action === 'forward') {
+          lines.push("    # Go forward in history");
+          lines.push("    await page.go_forward()");
+          lines.push("    await page.wait_for_load_state('load')");
+          lines.push("");
+        } else if (step.action === 'reload') {
+          lines.push("    # Reload page");
+          lines.push("    await page.reload()");
+          lines.push("    await page.wait_for_load_state('load')");
           lines.push("");
         }
       }
@@ -237,6 +267,21 @@ const compileToFramework = (
         lines.push(`        await page.evaluate('window.scrollBy(0, ${step.y})')`);
         lines.push("        await page.wait_for_timeout(1000)");
         lines.push("");
+      } else if (step.action === 'back') {
+        lines.push("        # Go back in history");
+        lines.push("        await page.go_back()");
+        lines.push("        await page.wait_for_load_state('load')");
+        lines.push("");
+      } else if (step.action === 'forward') {
+        lines.push("        # Go forward in history");
+        lines.push("        await page.go_forward()");
+        lines.push("        await page.wait_for_load_state('load')");
+        lines.push("");
+      } else if (step.action === 'reload') {
+        lines.push("        # Reload active page");
+        lines.push("        await page.reload()");
+        lines.push("        await page.wait_for_load_state('load')");
+        lines.push("");
       } else if (step.action === 'extract') {
         const var_name = step.name?.toLowerCase().replace(/\s+/g, '_') || 'data';
         lines.push(`        # Extract data: ${step.name}`);
@@ -301,6 +346,9 @@ const compileToFramework = (
       for (const step of interactions) {
         if (step.action === 'click') lines.push(`        # - Click on '${step.selector}'`);
         if (step.action === 'fill') lines.push(`        # - Fill '${step.selector}' with value '${step.value}'`);
+        if (step.action === 'back') lines.push("        # - Go back in browser history");
+        if (step.action === 'forward') lines.push("        # - Go forward in browser history");
+        if (step.action === 'reload') lines.push("        # - Reload page");
       }
       lines.push("");
     }
@@ -366,6 +414,45 @@ const compileToFramework = (
   return "# Unsupported framework format.";
 };
 
+const highlightPython = (code: string) => {
+  let html = code
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  const comments: string[] = [];
+  html = html.replace(/(#.*)/g, (match) => {
+    comments.push(match);
+    return `___COMMENT_PLACEHOLDER_${comments.length - 1}___`;
+  });
+
+  const strings: string[] = [];
+  html = html.replace(/(["'])(?:(?=(\\?))\2.)*?\1/g, (match) => {
+    strings.push(match);
+    return `___STRING_PLACEHOLDER_${strings.length - 1}___`;
+  });
+
+  const keywords = /\b(def|class|import|from|async|await|return|if|else|elif|for|in|try|except|print|pass|with|as|zip|yield|None|True|False|self)\b/g;
+  html = html.replace(keywords, '<span style="color: #ff79c6; font-weight: 600;">$1</span>');
+
+  const functions = /\b(StealthyFetcher|AsyncStealthyFetcher|fetch|css|get_all|get|zip|print|run_scraper|perform_actions|len|range|evaluate|click|fill|wait_for_load_state|wait_for_timeout|go_back|go_forward|reload)\b/g;
+  html = html.replace(functions, '<span style="color: #8be9fd;">$1</span>');
+
+  html = html.replace(/\.([a-zA-Z_][a-zA-Z0-9_]*)/g, '.<span style="color: #50fa7b;">$1</span>');
+
+  html = html.replace(/\b(\d+)\b/g, '<span style="color: #bd93f9;">$1</span>');
+
+  strings.forEach((str, index) => {
+    html = html.replace(`___STRING_PLACEHOLDER_${index}___`, `<span style="color: #f1fa8c;">${str}</span>`);
+  });
+
+  comments.forEach((comment, index) => {
+    html = html.replace(`___COMMENT_PLACEHOLDER_${index}___`, `<span style="color: #6272a4; font-style: italic;">${comment}</span>`);
+  });
+
+  return html;
+};
+
 export const CodeRunner: React.FC<CodeRunnerProps> = ({ 
   code, 
   sessionId, 
@@ -378,12 +465,20 @@ export const CodeRunner: React.FC<CodeRunnerProps> = ({
   const [consoleOutput, setConsoleOutput] = useState<string>('Console ready. Click "Run Recipe" to execute the Python script.');
   const [exitCode, setExitCode] = useState<number | null>(null);
   
-  // Local state to hold the editable code
   const [editableCode, setEditableCode] = useState<string>('');
   const [consoleTab, setConsoleTab] = useState<'console' | 'data'>('console');
   const [selectedFramework, setSelectedFramework] = useState<'scrapling_sync' | 'scrapling_async' | 'playwright_python' | 'scrapy_spider'>('scrapling_sync');
 
-  // Sync with code prop and framework when history changes
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const preRef = useRef<HTMLPreElement>(null);
+
+  const handleScroll = () => {
+    if (textareaRef.current && preRef.current) {
+      preRef.current.scrollTop = textareaRef.current.scrollTop;
+      preRef.current.scrollLeft = textareaRef.current.scrollLeft;
+    }
+  };
+
   useEffect(() => {
     if (history && history.length > 0) {
       const compiled = compileToFramework(history, selectedFramework);
@@ -393,7 +488,10 @@ export const CodeRunner: React.FC<CodeRunnerProps> = ({
     }
   }, [code, history, selectedFramework]);
 
-  // Auto-switch to data tab when new list data is scraped
+  useEffect(() => {
+    handleScroll();
+  }, [editableCode]);
+
   useEffect(() => {
     if (scrapedData.length > 0) {
       setConsoleTab('data');
@@ -543,21 +641,29 @@ export const CodeRunner: React.FC<CodeRunnerProps> = ({
 
       {/* Grid Layout Split: Textarea Editor on Left, Terminal on Right */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', flex: 1, overflow: 'hidden' }}>
-        {/* Left Side: Textarea Editor */}
+        {/* Left Side: Textarea Editor with Syntax Highlighting */}
         <div style={{
           display: 'flex',
           height: '100%',
           background: '#060910',
+          position: 'relative',
           overflow: 'hidden'
         }}>
           <textarea
+            ref={textareaRef}
             value={editableCode}
             onChange={(e) => setEditableCode(e.target.value)}
+            onScroll={handleScroll}
             spellCheck={false}
             style={{
-              flex: 1,
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
               background: 'transparent',
-              color: '#e2e8f0',
+              color: 'transparent',
+              caretColor: '#f8f8f2',
               fontFamily: 'var(--font-mono)',
               fontSize: '12.5px',
               lineHeight: '1.5',
@@ -565,11 +671,37 @@ export const CodeRunner: React.FC<CodeRunnerProps> = ({
               border: 'none',
               outline: 'none',
               resize: 'none',
-              height: '100%',
-              width: '100%',
-              overflowY: 'auto'
+              zIndex: 2,
+              overflowY: 'auto',
+              whiteSpace: 'pre',
+              wordWrap: 'normal'
             }}
             placeholder="Write or edit Python code here..."
+          />
+          <pre
+            ref={preRef}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              fontFamily: 'var(--font-mono)',
+              fontSize: '12.5px',
+              lineHeight: '1.5',
+              padding: '16px 16px 60px 16px',
+              margin: 0,
+              border: 'none',
+              whiteSpace: 'pre',
+              wordWrap: 'normal',
+              overflow: 'hidden',
+              zIndex: 1,
+              background: 'transparent',
+              pointerEvents: 'none',
+              color: '#e2e8f0',
+              textAlign: 'left'
+            }}
+            dangerouslySetInnerHTML={{ __html: highlightPython(editableCode) }}
           />
         </div>
 
