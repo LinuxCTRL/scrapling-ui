@@ -14,18 +14,27 @@ from models import (
     GenerateCodeRequest,
     UpdateHistoryRequest,
     RunCodeRequest,
-    TodoListUpdateRequest
+    TodoListUpdateRequest,
+    QuerySelectorRequest,
+    SaveJobRequest,
+    ToggleJobRequest
 )
 from core.browser_manager import pw_manager
 from core.session import Session, active_sessions
 from services.code_generator import generate_scrapling_code
 from services.code_runner import execute_run_code
+from core.db import get_all_jobs, get_job, save_job, delete_job, update_job_enabled
+from services.scheduler import start_scheduler, stop_scheduler, run_crawler_job, sync_db_to_scheduler, scheduler
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Initialize Playwright browser manager
     await pw_manager.start()
+    # Start background scheduler
+    start_scheduler()
     yield
+    # Stop background scheduler
+    stop_scheduler()
     # Clean up active browser sessions
     for session in list(active_sessions.values()):
         await session.close()
@@ -178,6 +187,21 @@ async def execute_action(req: ActionRequest):
             session.history.append({"action": "reload"})
             await session.page.reload(timeout=20000)
             
+        elif req.action_type == "pagination":
+            if not req.selector or not req.value:
+                raise HTTPException(status_code=400, detail="Selector and max_pages value required for pagination action")
+            try:
+                max_pages = int(req.value)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="max_pages must be an integer")
+            
+            session.history.append({
+                "action": "pagination",
+                "selector": req.selector,
+                "max_pages": max_pages
+            })
+            await session.page.click(req.selector, timeout=5000)
+            
         else:
             raise HTTPException(status_code=400, detail=f"Unknown action type: {req.action_type}")
             
@@ -221,6 +245,51 @@ async def run_code(req: RunCodeRequest):
         return await execute_run_code(req)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/session/query-selector")
+async def query_selector(req: QuerySelectorRequest):
+    session = active_sessions.get(req.session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    js_eval = """
+    (selector) => {
+        try {
+            let elms = [];
+            if (selector.startsWith('/') || selector.startsWith('xpath=')) {
+                let xpath = selector.startsWith('xpath=') ? selector.substring(6) : selector;
+                let result = document.evaluate(xpath, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+                for (let i = 0; i < result.snapshotLength; i++) {
+                    elms.push(result.snapshotItem(i));
+                }
+            } else {
+                elms = Array.from(document.querySelectorAll(selector));
+            }
+            return elms.map(el => {
+                if (el.nodeType !== Node.ELEMENT_NODE) return null;
+                const rect = el.getBoundingClientRect();
+                return {
+                    tag: el.tagName.toLowerCase(),
+                    classes: Array.from(el.classList).join(' '),
+                    id: el.id || '',
+                    rect: {
+                        x: Math.round(rect.left + (window.scrollX || window.pageXOffset || 0)),
+                        y: Math.round(rect.top + (window.scrollY || window.pageYOffset || 0)),
+                        width: Math.round(rect.width),
+                        height: Math.round(rect.height)
+                    }
+                };
+            }).filter(e => e && e.rect.width > 0 && e.rect.height > 0);
+        } catch (e) {
+            return [];
+        }
+    }
+    """
+    try:
+        matches = await session.page.evaluate(js_eval, req.selector)
+        return {"matches": matches}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Query failed: {str(e)}")
 
 TODO_FILE_PATH = "/home/soufiane/Work/ai-scraper/todo_list.md"
 ARTIFACT_TODO_PATH = "/home/soufiane/.gemini/antigravity-cli/brain/9c5acae8-27b0-4ae5-b750-ed8631c345a2/todo_list.md"
@@ -313,3 +382,47 @@ async def update_todo_list(req: TodoListUpdateRequest):
             print(f"Failed to write todo list to {path}: {e}")
             
     return {"status": "success", "tasks": req.tasks}
+
+# Add scheduled endpoints
+@app.get("/api/scheduler/jobs")
+async def list_jobs():
+    return {"jobs": get_all_jobs()}
+
+@app.post("/api/scheduler/jobs")
+async def create_or_update_job(req: SaveJobRequest):
+    job_id = req.id if req.id else str(uuid.uuid4())
+    job = save_job(
+        job_id=job_id,
+        name=req.name,
+        url=req.url,
+        history=req.history,
+        cron_expression=req.cron_expression,
+        webhook_url=req.webhook_url,
+        enabled=req.enabled
+    )
+    sync_db_to_scheduler()
+    return {"status": "success", "job": job}
+
+@app.post("/api/scheduler/jobs/{job_id}/toggle")
+async def toggle_job(job_id: str, req: ToggleJobRequest):
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    update_job_enabled(job_id, req.enabled)
+    sync_db_to_scheduler()
+    return {"status": "success", "enabled": req.enabled}
+
+@app.delete("/api/scheduler/jobs/{job_id}")
+async def remove_job(job_id: str):
+    delete_job(job_id)
+    try:
+        scheduler.remove_job(job_id)
+    except Exception:
+        pass
+    return {"status": "success"}
+
+@app.post("/api/scheduler/jobs/{job_id}/run")
+async def trigger_job_run(job_id: str):
+    import asyncio
+    asyncio.create_task(run_crawler_job(job_id))
+    return {"status": "success", "message": "Job execution triggered headlessly in background"}

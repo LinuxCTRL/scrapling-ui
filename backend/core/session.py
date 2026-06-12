@@ -237,6 +237,16 @@ class Session:
                 elif action == "reload":
                     await self.page.reload(timeout=20000)
                     self.history.append({"action": "reload"})
+                    
+                elif action == "pagination":
+                    selector = step["selector"]
+                    max_pages = step["max_pages"]
+                    await self.page.click(selector, timeout=5000)
+                    self.history.append({
+                        "action": "pagination",
+                        "selector": selector,
+                        "max_pages": max_pages
+                    })
             except Exception as e:
                 print(f"Replay failed on step {step}: {e}")
                 raise Exception(f"Failed to replay step '{action}' on '{step.get('selector', '')}': {str(e)}")

@@ -45,3 +45,19 @@ class TaskModel(BaseModel):
 
 class TodoListUpdateRequest(BaseModel):
     tasks: List[TaskModel]
+
+class QuerySelectorRequest(BaseModel):
+    session_id: str
+    selector: str
+
+class SaveJobRequest(BaseModel):
+    id: Optional[str] = None
+    name: str
+    url: str
+    history: List[Dict[str, Any]]
+    cron_expression: str
+    webhook_url: str
+    enabled: bool = True
+
+class ToggleJobRequest(BaseModel):
+    enabled: bool

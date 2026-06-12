@@ -25,5 +25,27 @@ This file tracks the status of major features and enhancements proposed to scale
 
 ---
 
-## 🎉 Status: All Milestones Completed!
-All proposed features on the Scrapling Visual Builder roadmap have been successfully engineered and are fully integrated into the live developer environment. The studio is now a production-grade visual scraping workbench.
+## 🚀 Advanced Features Checklist
+
+- [x] **Milestone 1: Pagination Loop Wizard (Multi-Page Scraping)** `[DONE]`
+  - [x] Add "Define Pagination Link" option and configuration form to the canvas context menu.
+  - [x] Add pagination action handler in FastAPI backend and support session replay.
+  - [x] Update Python code generator to compile nested page-by-page loops.
+  - [x] Update frontend CodeRunner exporters for all frameworks.
+- [x] **Milestone 2: Live Custom Selector Tester & Highlighter** `[DONE]`
+  - [x] Add custom CSS/XPath selector search bar in DOM Elements tree sidebar.
+  - [x] Implement backend endpoint `/api/session/query-selector` to evaluate selector matches.
+  - [x] Add real-time highlight overlays on the interactive canvas.
+- [ ] **Milestone 3: Scheduled Jobs & Webhook Exporters** `[ACTIVE]`
+  - [ ] Set up local SQLite database `jobs.db` to save scraping templates (recipes).
+  - [ ] Set up APScheduler in FastAPI to run background crawl jobs.
+  - [ ] Create schedule configuration form and webhook exporter settings in frontend.
+- [ ] **Milestone 4: Selector Self-Healing using DeepSeek LLM** `[TODO]`
+  - [ ] Add AI Settings panel in frontend for DeepSeek API Key.
+  - [ ] Implement DeepSeek API integration in backend.
+  - [ ] Auto-heal broken selectors in Code Runner using LLM sibling/parent matching.
+
+---
+
+## 🎉 Status: Core Milestones Completed, Advanced Upgrades Underway!
+All core features are finished. Currently implementing Milestone 2 of the advanced upgrades suite.

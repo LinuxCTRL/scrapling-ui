@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { MousePointerClick, Type, Sparkles, AlertCircle, ArrowLeft, ArrowRight, RotateCw, ChevronUp, ChevronDown } from 'lucide-react';
+import { MousePointerClick, Type, Sparkles, AlertCircle, ArrowLeft, ArrowRight, RotateCw, ChevronUp, ChevronDown, Globe } from 'lucide-react';
 
 interface DOMNode {
   tag: string;
@@ -25,6 +25,7 @@ interface CanvasViewProps {
   selectedNode: DOMNode | null;
   setSelectedNode: (node: DOMNode | null) => void;
   onAddExtraction: (actionType: 'extract' | 'extract_list', selector: string, name: string, attribute: string) => void;
+  customSelectorMatches?: any[];
 }
 
 export const CanvasView: React.FC<CanvasViewProps> = ({
@@ -34,7 +35,8 @@ export const CanvasView: React.FC<CanvasViewProps> = ({
   onExecuteAction,
   selectedNode,
   setSelectedNode,
-  onAddExtraction
+  onAddExtraction,
+  customSelectorMatches = []
 }) => {
   const imgRef = useRef<HTMLImageElement>(null);
   
@@ -60,6 +62,9 @@ export const CanvasView: React.FC<CanvasViewProps> = ({
   const [showExtractForm, setShowExtractForm] = useState(false);
   const [showExtractListForm, setShowExtractListForm] = useState(false);
   const [listSelector, setListSelector] = useState('');
+  const [showPaginationForm, setShowPaginationForm] = useState(false);
+  const [paginationSelector, setPaginationSelector] = useState('');
+  const [maxPages, setMaxPages] = useState(5);
 
   // Flatten DOM Tree when it changes
   useEffect(() => {
@@ -192,6 +197,8 @@ export const CanvasView: React.FC<CanvasViewProps> = ({
         // Reset action fields
         setShowInputForm(false);
         setShowExtractForm(false);
+        setShowExtractListForm(false);
+        setShowPaginationForm(false);
         setInputValue('');
         setExtractName(hoveredNode.tag + '_' + Math.floor(Math.random() * 100));
         setExtractAttr('text');
@@ -228,6 +235,14 @@ export const CanvasView: React.FC<CanvasViewProps> = ({
     if (!actionMenu || !extractName || !listSelector) return;
     onAddExtraction('extract_list', listSelector, extractName, extractAttr);
     setActionMenu(null);
+  };
+
+  const executePagination = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!actionMenu || !paginationSelector) return;
+    setActionMenu(null);
+    setShowPaginationForm(false);
+    await onExecuteAction('pagination', paginationSelector, String(maxPages));
   };
 
   const generalizeSelector = (sel: string): string => {
@@ -346,6 +361,49 @@ export const CanvasView: React.FC<CanvasViewProps> = ({
             {/* Element Selected Highlight */}
             <div className="box-selected" style={selectedStyle} />
 
+            {/* Custom Selector Highlights */}
+            {customSelectorMatches.map((match, idx) => {
+              if (!imgRef.current) return null;
+              const rect = imgRef.current.getBoundingClientRect();
+              const originalWidth = imgRef.current.naturalWidth || 1280;
+              const originalHeight = imgRef.current.naturalHeight || 800;
+              const scX = rect.width / originalWidth;
+              const scY = rect.height / originalHeight;
+              
+              return (
+                <div
+                  key={`custom-match-${idx}`}
+                  style={{
+                    position: 'absolute',
+                    border: '2px dashed var(--accent-secondary)',
+                    backgroundColor: 'rgba(236, 72, 153, 0.15)',
+                    pointerEvents: 'none',
+                    left: `${match.rect.x * scX}px`,
+                    top: `${match.rect.y * scY}px`,
+                    width: `${match.rect.width * scX}px`,
+                    height: `${match.rect.height * scY}px`,
+                    zIndex: 10
+                  }}
+                >
+                  <div style={{
+                    position: 'absolute',
+                    bottom: '100%',
+                    left: 0,
+                    backgroundColor: 'var(--accent-secondary)',
+                    color: '#fff',
+                    fontSize: '9px',
+                    padding: '1px 4px',
+                    borderRadius: '2px',
+                    whiteSpace: 'nowrap',
+                    fontFamily: 'var(--font-mono)',
+                    transform: 'translateY(-2px)'
+                  }}>
+                    {match.tag}{match.id ? `#${match.id}` : ''}
+                  </div>
+                </div>
+              );
+            })}
+
             {/* Action Popup Context Menu */}
             {actionMenu?.visible && (
               <div 
@@ -367,7 +425,7 @@ export const CanvasView: React.FC<CanvasViewProps> = ({
                   {actionMenu.node.selector}
                 </div>
 
-                {!showInputForm && !showExtractForm && !showExtractListForm ? (
+                {!showInputForm && !showExtractForm && !showExtractListForm && !showPaginationForm ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                     <button 
                       className="btn btn-secondary" 
@@ -409,6 +467,18 @@ export const CanvasView: React.FC<CanvasViewProps> = ({
                     >
                       <Sparkles size={14} color="var(--accent-secondary)" />
                       Extract List Column
+                    </button>
+                    <button 
+                      className="btn btn-secondary" 
+                      style={{ height: '32px', justifyContent: 'flex-start', fontSize: '12px', borderColor: 'var(--accent-primary)' }}
+                      onClick={() => {
+                        setShowPaginationForm(true);
+                        setPaginationSelector(actionMenu.node.selector);
+                        setMaxPages(5);
+                      }}
+                    >
+                      <Globe size={14} color="var(--accent-primary)" />
+                      Define Pagination Link
                     </button>
                   </div>
                 ) : showInputForm ? (
@@ -478,7 +548,7 @@ export const CanvasView: React.FC<CanvasViewProps> = ({
                       <button type="button" className="btn btn-secondary" style={{ height: '28px', flex: 1, fontSize: '11px' }} onClick={() => setShowExtractForm(false)}>Back</button>
                     </div>
                   </form>
-                ) : (
+                ) : showExtractListForm ? (
                   <form onSubmit={executeExtractList} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Column/List Name:</label>
                     <input 
@@ -536,6 +606,46 @@ export const CanvasView: React.FC<CanvasViewProps> = ({
                     <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
                       <button type="submit" className="btn btn-primary" style={{ height: '28px', flex: 1, fontSize: '11px', background: 'var(--accent-secondary)' }}>Add Column</button>
                       <button type="button" className="btn btn-secondary" style={{ height: '28px', flex: 1, fontSize: '11px' }} onClick={() => setShowExtractListForm(false)}>Back</button>
+                    </div>
+                  </form>
+                ) : (
+                  <form onSubmit={executePagination} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Pagination Link Selector:</label>
+                    <input 
+                      type="text" 
+                      value={paginationSelector}
+                      onChange={(e) => setPaginationSelector(e.target.value)}
+                      placeholder="Next page selector..."
+                      style={{
+                        background: 'var(--bg-main)',
+                        border: '1px solid var(--border-light)',
+                        borderRadius: 'var(--radius-sm)',
+                        padding: '6px 8px',
+                        color: '#fff',
+                        fontSize: '11px',
+                        fontFamily: 'var(--font-mono)'
+                      }}
+                      autoFocus
+                    />
+                    <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Max Pages Limit:</label>
+                    <input 
+                      type="number" 
+                      min="2"
+                      max="100"
+                      value={maxPages}
+                      onChange={(e) => setMaxPages(parseInt(e.target.value) || 2)}
+                      style={{
+                        background: 'var(--bg-main)',
+                        border: '1px solid var(--border-light)',
+                        borderRadius: 'var(--radius-sm)',
+                        padding: '6px 8px',
+                        color: '#fff',
+                        fontSize: '12px'
+                      }}
+                    />
+                    <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
+                      <button type="submit" className="btn btn-primary" style={{ height: '28px', flex: 1, fontSize: '11px', background: 'var(--accent-primary)' }}>Set Pagination</button>
+                      <button type="button" className="btn btn-secondary" style={{ height: '28px', flex: 1, fontSize: '11px' }} onClick={() => setShowPaginationForm(false)}>Back</button>
                     </div>
                   </form>
                 )}

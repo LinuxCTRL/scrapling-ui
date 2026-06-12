@@ -137,32 +137,90 @@ const TreeNode: React.FC<{
   );
 };
 
+interface ElementsTreeProps {
+  domTree: DOMNode | null;
+  selectedNode: DOMNode | null;
+  setSelectedNode: (node: DOMNode | null) => void;
+  customSelector: string;
+  onCustomSelectorChange: (selector: string) => void;
+  customSelectorMatchesCount: number;
+}
+
 export const ElementsTree: React.FC<ElementsTreeProps> = ({ 
   domTree, 
   selectedNode, 
-  setSelectedNode 
+  setSelectedNode,
+  customSelector,
+  onCustomSelectorChange,
+  customSelectorMatchesCount
 }) => {
   return (
     <div style={{ 
-      overflowX: 'auto', 
-      overflowY: 'auto', 
-      height: '100%', 
       display: 'flex', 
       flexDirection: 'column',
-      gap: '4px' 
+      height: '100%',
+      overflow: 'hidden'
     }}>
-      {domTree ? (
-        <TreeNode 
-          node={domTree} 
-          depth={0} 
-          selectedNode={selectedNode} 
-          setSelectedNode={setSelectedNode} 
-        />
-      ) : (
-        <div style={{ color: 'var(--text-muted)', fontSize: '13px', padding: '12px', fontStyle: 'italic' }}>
-          No elements loaded. Start a session to view page DOM structure.
+      {/* Selector Tester Box */}
+      <div style={{
+        padding: '12px',
+        borderBottom: '1px solid var(--border-light)',
+        background: '#0a0d16',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '6px'
+      }}>
+        <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between' }}>
+          <span>LIVE SELECTOR TESTER (CSS/XPATH)</span>
+          {customSelector.trim() && (
+            <span style={{ color: customSelectorMatchesCount > 0 ? 'var(--accent-secondary)' : 'var(--accent-error)', fontWeight: 'bold' }}>
+              {customSelectorMatchesCount} match{customSelectorMatchesCount !== 1 ? 'es' : ''}
+            </span>
+          )}
         </div>
-      )}
+        <input
+          type="text"
+          value={customSelector}
+          onChange={(e) => onCustomSelectorChange(e.target.value)}
+          placeholder="e.g. span.titleline > a or //a[@class='morelink']"
+          style={{
+            background: 'var(--bg-main)',
+            border: '1px solid var(--border-light)',
+            borderRadius: 'var(--radius-sm)',
+            padding: '6px 10px',
+            color: '#fff',
+            fontSize: '12px',
+            fontFamily: 'var(--font-mono)',
+            outline: 'none',
+            boxSizing: 'border-box',
+            width: '100%'
+          }}
+        />
+      </div>
+
+      {/* DOM Tree Area */}
+      <div style={{ 
+        overflowX: 'auto', 
+        overflowY: 'auto', 
+        flex: 1,
+        padding: '12px',
+        display: 'flex', 
+        flexDirection: 'column',
+        gap: '4px' 
+      }}>
+        {domTree ? (
+          <TreeNode 
+            node={domTree} 
+            depth={0} 
+            selectedNode={selectedNode} 
+            setSelectedNode={setSelectedNode} 
+          />
+        ) : (
+          <div style={{ color: 'var(--text-muted)', fontSize: '13px', fontStyle: 'italic' }}>
+            No elements loaded. Start a session to view page DOM structure.
+          </div>
+        )}
+      </div>
     </div>
   );
 };

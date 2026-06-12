@@ -59,6 +59,10 @@ function App() {
   const [selectedNode, setSelectedNode] = useState<DOMNode | null>(null);
   const [scrapedData, setScrapedData] = useState<any[]>([]);
   
+  // Custom selector tester state
+  const [customSelector, setCustomSelector] = useState('');
+  const [customSelectorMatches, setCustomSelectorMatches] = useState<any[]>([]);
+  
   // Stealth & Anti-bot Settings
   const [solveCloudflare, setSolveCloudflare] = useState(true);
   const [blockAds, setBlockAds] = useState(true);
@@ -77,6 +81,34 @@ function App() {
     if (newState.scraped_data) setScrapedData(newState.scraped_data);
   };
 
+  const handleQuerySelector = async (selector: string) => {
+    setCustomSelector(selector);
+    if (!sessionId) return;
+    if (!selector.trim()) {
+      setCustomSelectorMatches([]);
+      return;
+    }
+    try {
+      const response = await fetch('/api/session/query-selector', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: sessionId,
+          selector: selector
+        })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setCustomSelectorMatches(data.matches || []);
+      } else {
+        setCustomSelectorMatches([]);
+      }
+    } catch (e) {
+      console.error('Failed to query selector', e);
+      setCustomSelectorMatches([]);
+    }
+  };
+
   const handleResetLocalState = () => {
     setSessionId(null);
     setScreenshot(null);
@@ -86,6 +118,8 @@ function App() {
     setScrapedData([]);
     setCode('');
     setSelectedNode(null);
+    setCustomSelector('');
+    setCustomSelectorMatches([]);
   };
 
   // Launch browser session
@@ -647,6 +681,7 @@ function App() {
               selectedNode={selectedNode}
               setSelectedNode={setSelectedNode}
               onAddExtraction={handleAddExtraction}
+              customSelectorMatches={customSelectorMatches}
             />
           </div>
           <div style={{ height: '320px', minHeight: '320px' }}>
@@ -716,6 +751,9 @@ function App() {
                       domTree={domTree}
                       selectedNode={selectedNode}
                       setSelectedNode={setSelectedNode}
+                      customSelector={customSelector}
+                      onCustomSelectorChange={handleQuerySelector}
+                      customSelectorMatchesCount={customSelectorMatches.length}
                     />
                   ) : topTab === 'network' ? (
                     <NetworkPanel logs={networkLogs} />
