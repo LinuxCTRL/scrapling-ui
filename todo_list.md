@@ -36,10 +36,10 @@ This file tracks the status of major features and enhancements proposed to scale
   - [x] Add custom CSS/XPath selector search bar in DOM Elements tree sidebar.
   - [x] Implement backend endpoint `/api/session/query-selector` to evaluate selector matches.
   - [x] Add real-time highlight overlays on the interactive canvas.
-- [ ] **Milestone 3: Scheduled Jobs & Webhook Exporters** `[ACTIVE]`
-  - [ ] Set up local SQLite database `jobs.db` to save scraping templates (recipes).
-  - [ ] Set up APScheduler in FastAPI to run background crawl jobs.
-  - [ ] Create schedule configuration form and webhook exporter settings in frontend.
+- [x] **Milestone 3: Scheduled Jobs & Webhook Exporters** `[DONE]`
+  - [x] Set up local SQLite database `jobs.db` to save scraping templates (recipes).
+  - [x] Set up APScheduler in FastAPI to run background crawl jobs.
+  - [x] Create schedule configuration form and webhook exporter settings in frontend.
 - [ ] **Milestone 4: Selector Self-Healing using DeepSeek LLM** `[TODO]`
   - [ ] Add AI Settings panel in frontend for DeepSeek API Key.
   - [ ] Implement DeepSeek API integration in backend.
@@ -47,5 +47,5 @@ This file tracks the status of major features and enhancements proposed to scale
 
 ---
 
-## 🎉 Status: Core Milestones Completed, Advanced Upgrades Underway!
-All core features are finished. Currently implementing Milestone 2 of the advanced upgrades suite.
+## 🎉 Status: Core Milestones + Advanced Milestones 1-3 Complete!
+All core features and upgrades through Milestone 3 are finished. Next up: Milestone 4 (Selector Self-Healing).
