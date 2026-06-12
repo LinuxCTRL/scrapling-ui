@@ -156,7 +156,14 @@ function App() {
         })
       });
       if (!response.ok) {
-        throw new Error(`Failed to perform action: ${actionType}`);
+        let errMsg = `Failed to perform action: ${actionType}`;
+        try {
+          const errData = await response.json();
+          if (errData && errData.detail) {
+            errMsg = `${errMsg} (${errData.detail})`;
+          }
+        } catch (_) {}
+        throw new Error(errMsg);
       }
       const data = await response.json();
       setScreenshot(data.screenshot);
@@ -191,7 +198,14 @@ function App() {
         })
       });
       if (!response.ok) {
-        throw new Error('Failed to record extraction step');
+        let errMsg = 'Failed to record extraction step';
+        try {
+          const errData = await response.json();
+          if (errData && errData.detail) {
+            errMsg = `${errMsg} (${errData.detail})`;
+          }
+        } catch (_) {}
+        throw new Error(errMsg);
       }
       const data = await response.json();
       setHistory(data.history);

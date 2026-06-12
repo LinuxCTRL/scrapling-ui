@@ -230,6 +230,8 @@ code, pre {
   background-color: var(--bg-main);
   overflow: hidden;
   position: relative;
+  height: 100%;
+  flex: 1;
 }
 
 .canvas-toolbar {
@@ -244,7 +246,7 @@ code, pre {
 .canvas-viewport-wrapper {
   flex: 1;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   overflow: auto;
   padding: 24px;

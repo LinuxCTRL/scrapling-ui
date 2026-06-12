@@ -123,8 +123,8 @@ class Session:
         # Wait a small bit for any rendering/animations to settle
         await asyncio.sleep(0.5)
 
-        # Viewport screenshot
-        screenshot_bytes = await self.page.screenshot(type="jpeg", quality=80)
+        # Capture full page screenshot so the user can scroll it in the canvas
+        screenshot_bytes = await self.page.screenshot(type="jpeg", quality=80, full_page=True)
         screenshot_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
         screenshot_data_uri = f"data:image/jpeg;base64,{screenshot_b64}"
         
@@ -249,11 +249,17 @@ class Session:
                     })
                     
                 elif action == "back":
-                    await self.page.go_back(timeout=10000)
+                    try:
+                        await self.page.go_back(timeout=5000)
+                    except Exception:
+                        pass
                     self.history.append({"action": "back"})
                     
                 elif action == "forward":
-                    await self.page.go_forward(timeout=10000)
+                    try:
+                        await self.page.go_forward(timeout=5000)
+                    except Exception:
+                        pass
                     self.history.append({"action": "forward"})
                     
                 elif action == "reload":
@@ -436,11 +442,17 @@ async def execute_action(req: ActionRequest):
             
         elif req.action_type == "back":
             session.history.append({"action": "back"})
-            await session.page.go_back(timeout=10000)
+            try:
+                await session.page.go_back(timeout=5000)
+            except Exception as e:
+                print(f"Warning: go_back failed (likely no history): {e}")
             
         elif req.action_type == "forward":
             session.history.append({"action": "forward"})
-            await session.page.go_forward(timeout=10000)
+            try:
+                await session.page.go_forward(timeout=5000)
+            except Exception as e:
+                print(f"Warning: go_forward failed (likely no history): {e}")
             
         elif req.action_type == "reload":
             session.history.append({"action": "reload"})

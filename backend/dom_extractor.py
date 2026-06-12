@@ -125,8 +125,8 @@ DOM_EXTRACTOR_JS = """
       selector: getUniqueSelector(node),
       xpath: getXPath(node),
       rect: {
-        x: Math.round(rect.left),
-        y: Math.round(rect.top),
+        x: Math.round(rect.left + (window.scrollX || window.pageXOffset || 0)),
+        y: Math.round(rect.top + (window.scrollY || window.pageYOffset || 0)),
         width: Math.round(rect.width),
         height: Math.round(rect.height)
       },

@@ -86,9 +86,9 @@ export const CanvasView: React.FC<CanvasViewProps> = ({
   const updateScaling = () => {
     if (!imgRef.current) return;
     const rect = imgRef.current.getBoundingClientRect();
-    // Headless browser viewport size (matching backend defaults: 1280x800)
-    const originalWidth = 1280;
-    const originalHeight = 800;
+    // Use natural image dimensions (support dynamic/full-page screenshots)
+    const originalWidth = imgRef.current.naturalWidth || 1280;
+    const originalHeight = imgRef.current.naturalHeight || 800;
     
     setScale({
       x: originalWidth / rect.width,
@@ -105,8 +105,8 @@ export const CanvasView: React.FC<CanvasViewProps> = ({
   useEffect(() => {
     if (!imgRef.current) return;
     const rect = imgRef.current.getBoundingClientRect();
-    const originalWidth = 1280;
-    const originalHeight = 800;
+    const originalWidth = imgRef.current.naturalWidth || 1280;
+    const originalHeight = imgRef.current.naturalHeight || 800;
     
     const scX = rect.width / originalWidth;
     const scY = rect.height / originalHeight;
@@ -177,8 +177,10 @@ export const CanvasView: React.FC<CanvasViewProps> = ({
       const imgContainer = imgRef.current.parentElement;
       if (imgContainer) {
         const rect = imgRef.current.getBoundingClientRect();
-        const scX = rect.width / 1280;
-        const scY = rect.height / 800;
+        const originalWidth = imgRef.current.naturalWidth || 1280;
+        const originalHeight = imgRef.current.naturalHeight || 800;
+        const scX = rect.width / originalWidth;
+        const scY = rect.height / originalHeight;
         
         setActionMenu({
           visible: true,
@@ -238,7 +240,7 @@ export const CanvasView: React.FC<CanvasViewProps> = ({
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <span style={{ fontSize: '13px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <Sparkles size={14} color="var(--accent-secondary)" />
-            Interactive Headless Canvas (1280x800 Viewport)
+            Interactive Headless Canvas (Scrollable Page)
           </span>
 
           {screenshot && (
