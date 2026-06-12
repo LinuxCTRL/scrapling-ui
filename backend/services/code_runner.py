@@ -6,7 +6,7 @@ import asyncio
 import os
 from typing import Optional, Dict, Any
 from contextlib import redirect_stdout, redirect_stderr
-from session import Session, active_sessions
+from core.session import Session, active_sessions
 from models import RunCodeRequest
 
 def make_code_async(code: str) -> str:

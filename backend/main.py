@@ -16,10 +16,10 @@ from models import (
     RunCodeRequest,
     TodoListUpdateRequest
 )
-from browser_manager import pw_manager
-from session import Session, active_sessions
-from code_generator import generate_scrapling_code
-from code_runner import execute_run_code
+from core.browser_manager import pw_manager
+from core.session import Session, active_sessions
+from services.code_generator import generate_scrapling_code
+from services.code_runner import execute_run_code
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

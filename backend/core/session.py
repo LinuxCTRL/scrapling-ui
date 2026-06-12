@@ -3,7 +3,7 @@ import asyncio
 import uuid
 from typing import Dict, List, Any
 from playwright.async_api import Browser, BrowserContext, Page
-from dom_extractor import DOM_EXTRACTOR_JS
+from .dom_extractor import DOM_EXTRACTOR_JS
 
 class Session:
     def __init__(self, session_id: str, browser: Browser, context: BrowserContext, page: Page, solve_cloudflare: bool = True, block_ads: bool = True, disable_resources: bool = False):
