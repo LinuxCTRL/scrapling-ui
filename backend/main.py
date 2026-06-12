@@ -122,7 +122,15 @@ async def execute_action(req: ActionRequest):
             
         elif req.action_type == "scroll":
             # Scroll relative to the page
-            y_scroll = req.y if req.y is not None else 300
+            y_scroll = 300
+            if req.value:
+                try:
+                    y_scroll = int(req.value)
+                except ValueError:
+                    pass
+            elif req.y is not None:
+                y_scroll = req.y
+                
             session.history.append({"action": "scroll", "y": y_scroll})
             await session.page.evaluate(f"window.scrollBy(0, {y_scroll})")
             

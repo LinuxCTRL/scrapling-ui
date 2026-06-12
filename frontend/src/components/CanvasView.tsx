@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { MousePointerClick, Type, Sparkles, AlertCircle, ArrowLeft, ArrowRight, RotateCw } from 'lucide-react';
+import { MousePointerClick, Type, Sparkles, AlertCircle, ArrowLeft, ArrowRight, RotateCw, ChevronUp, ChevronDown } from 'lucide-react';
 
 interface DOMNode {
   tag: string;
@@ -271,6 +271,24 @@ export const CanvasView: React.FC<CanvasViewProps> = ({
                 title="Reload Page"
               >
                 <RotateCw size={12} />
+              </button>
+              <button
+                className="btn btn-secondary"
+                disabled={isLoading}
+                onClick={() => onExecuteAction('scroll', '', '-400')}
+                style={{ width: '24px', height: '24px', padding: 0, borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                title="Scroll Up"
+              >
+                <ChevronUp size={12} />
+              </button>
+              <button
+                className="btn btn-secondary"
+                disabled={isLoading}
+                onClick={() => onExecuteAction('scroll', '', '400')}
+                style={{ width: '24px', height: '24px', padding: 0, borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                title="Scroll Down"
+              >
+                <ChevronDown size={12} />
               </button>
             </div>
           )}
