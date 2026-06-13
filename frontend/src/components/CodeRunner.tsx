@@ -1271,6 +1271,43 @@ export const CodeRunner: React.FC<CodeRunnerProps> = ({
                   <p style={{ fontSize: '11px' }}>Use "Extract List Column" in the canvas context menu to extract sibling components into structured tables.</p>
                 </div>
               ) : (
+                <>
+                <div style={{ display: 'flex', gap: '6px', padding: '8px 0', borderBottom: '1px solid var(--border-light)', marginBottom: '8px' }}>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      const csv = [Object.keys(scrapedData[0]).join(',')];
+                      scrapedData.forEach(row => {
+                        csv.push(Object.values(row).map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
+                      });
+                      const blob = new Blob([csv.join('\n')], { type: 'text/csv' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `scraped_data_${new Date().toISOString().slice(0, 10)}.csv`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    }}
+                    style={{ height: '24px', padding: '0 8px', fontSize: '10px', gap: '4px' }}
+                  >
+                    Export CSV
+                  </button>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      const blob = new Blob([JSON.stringify(scrapedData, null, 2)], { type: 'application/json' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `scraped_data_${new Date().toISOString().slice(0, 10)}.json`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    }}
+                    style={{ height: '24px', padding: '0 8px', fontSize: '10px', gap: '4px' }}
+                  >
+                    Export JSON
+                  </button>
+                </div>
                 <table style={{
                   width: '100%',
                   borderCollapse: 'collapse',
@@ -1308,6 +1345,7 @@ export const CodeRunner: React.FC<CodeRunnerProps> = ({
                     ))}
                   </tbody>
                 </table>
+              </>
               )}
             </div>
           )}

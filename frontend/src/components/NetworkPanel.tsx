@@ -1,18 +1,6 @@
 import React, { useState } from 'react';
 import { Search, Filter } from 'lucide-react';
-
-interface NetworkLog {
-  id: string;
-  url: string;
-  method: string;
-  resource_type: string;
-  request_headers: Record<string, string>;
-  post_data: string | null;
-  status: number | null;
-  response_headers: Record<string, string> | null;
-  response_body: string | null;
-  size: number;
-}
+import type { NetworkLog } from '../types';
 
 interface NetworkPanelProps {
   logs: NetworkLog[];

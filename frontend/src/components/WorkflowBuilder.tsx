@@ -1,15 +1,6 @@
 import React, { useState } from 'react';
 import { Compass, MousePointerClick, Type, ArrowDown, Sparkles, Copy, Trash2, ChevronUp, ChevronDown, GripVertical, ArrowLeft, ArrowRight, RotateCw } from 'lucide-react';
-
-interface WorkflowStep {
-  action: 'navigate' | 'click' | 'fill' | 'scroll' | 'extract' | 'extract_list' | 'back' | 'forward' | 'reload';
-  url?: string;
-  selector?: string;
-  value?: string;
-  y?: number;
-  name?: string;
-  attribute?: string;
-}
+import type { WorkflowStep } from '../types';
 
 interface WorkflowBuilderProps {
   history: WorkflowStep[];

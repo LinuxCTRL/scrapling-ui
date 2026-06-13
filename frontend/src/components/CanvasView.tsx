@@ -1,21 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { MousePointerClick, Type, Sparkles, AlertCircle, ArrowLeft, ArrowRight, RotateCw, ChevronUp, ChevronDown, Globe } from 'lucide-react';
-
-interface DOMNode {
-  tag: string;
-  id: string;
-  classes: string;
-  text: string;
-  selector: string;
-  xpath: string;
-  rect: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  };
-  children?: DOMNode[];
-}
+import type { DOMNode } from '../types';
 
 interface CanvasViewProps {
   screenshot: string | null;

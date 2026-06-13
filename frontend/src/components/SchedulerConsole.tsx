@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, Play, Trash2, Plus, Clock, Globe, ToggleLeft, ToggleRight, Loader, Check, AlertCircle } from 'lucide-react';
+import { Calendar, Play, Trash2, Plus, Clock, Globe, ToggleLeft, ToggleRight, Loader } from 'lucide-react';
 
 interface SchedulerConsoleProps {
   sessionId: string | null;
@@ -20,6 +20,27 @@ interface ScheduledJob {
   created_at: string;
 }
 
+function isValidCron(expr: string): { valid: boolean; message?: string } {
+  const parts = expr.trim().split(/\s+/);
+  const wildRange = /^(\*|[0-9]+)([-\/][0-9]+|[-\*])?$/;
+  if (parts.length !== 5) return { valid: false, message: 'Must have exactly 5 fields (minute hour day month weekday)' };
+  const validators = [
+    { name: 'minute', max: 59, pattern: wildRange },
+    { name: 'hour', max: 23, pattern: wildRange },
+    { name: 'day of month', max: 31, pattern: wildRange },
+    { name: 'month', max: 12, pattern: wildRange },
+    { name: 'weekday', max: 7, pattern: wildRange },
+  ];
+  for (let i = 0; i < 5; i++) {
+    const field = parts[i];
+    const validator = validators[i];
+    for (const segment of field.split(',')) {
+      if (!validator.pattern.test(segment)) return { valid: false, message: `Invalid '${validator.name}' field: '${segment}'` };
+    }
+  }
+  return { valid: true };
+}
+
 export const SchedulerConsole: React.FC<SchedulerConsoleProps> = ({ sessionId, url, history }) => {
   const [jobs, setJobs] = useState<ScheduledJob[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -30,6 +51,7 @@ export const SchedulerConsole: React.FC<SchedulerConsoleProps> = ({ sessionId, u
   const [showAddForm, setShowAddForm] = useState(false);
   const [jobName, setJobName] = useState('');
   const [cronExpression, setCronExpression] = useState('*/5 * * * *');
+  const [cronValidation, setCronValidation] = useState<{ valid: boolean; message?: string }>({ valid: true });
   const [webhookUrl, setWebhookUrl] = useState('');
   const [editingJob, setEditingJob] = useState<ScheduledJob | null>(null);
 
@@ -52,10 +74,18 @@ export const SchedulerConsole: React.FC<SchedulerConsoleProps> = ({ sessionId, u
     }
   };
 
+  useEffect(() => {
+    setCronValidation(isValidCron(cronExpression));
+  }, [cronExpression]);
+
   const handleSaveJob = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!jobName || !cronExpression) {
       alert('Job Name and Cron Expression are required.');
+      return;
+    }
+    if (!cronValidation.valid) {
+      alert(`Invalid cron expression: ${cronValidation.message}`);
       return;
     }
 
@@ -220,22 +250,40 @@ export const SchedulerConsole: React.FC<SchedulerConsoleProps> = ({ sessionId, u
                 <span>Cron Interval Expression:</span>
                 <a href="https://crontab.guru" target="_blank" rel="noreferrer" style={{ color: 'var(--accent-secondary)', textDecoration: 'none' }}>crontab.guru</a>
               </label>
-              <input
-                type="text"
-                value={cronExpression}
-                onChange={(e) => setCronExpression(e.target.value)}
-                placeholder="e.g. */5 * * * * (Every 5 minutes)"
-                required
-                style={{
-                  background: 'var(--bg-main)',
-                  border: '1px solid var(--border-light)',
-                  borderRadius: 'var(--radius-sm)',
-                  padding: '6px 10px',
-                  color: '#fff',
-                  fontSize: '12px',
-                  fontFamily: 'var(--font-mono)'
-                }}
-              />
+              <div style={{ position: 'relative' }}>
+                <input
+                  type="text"
+                  value={cronExpression}
+                  onChange={(e) => setCronExpression(e.target.value)}
+                  placeholder="e.g. */5 * * * * (Every 5 minutes)"
+                  required
+                  style={{
+                    background: 'var(--bg-main)',
+                    border: `1px solid ${cronExpression && !cronValidation.valid ? 'var(--accent-error)' : 'var(--border-light)'}`,
+                    borderRadius: 'var(--radius-sm)',
+                    padding: '6px 10px',
+                    color: '#fff',
+                    fontSize: '12px',
+                    fontFamily: 'var(--font-mono)',
+                    width: '100%',
+                    boxSizing: 'border-box'
+                  }}
+                />
+                {cronExpression && !cronValidation.valid && (
+                  <span style={{
+                    position: 'absolute',
+                    right: '8px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    fontSize: '10px',
+                    color: 'var(--accent-error)',
+                    fontFamily: 'var(--font-mono)',
+                    pointerEvents: 'none'
+                  }}>
+                    {cronValidation.message}
+                  </span>
+                )}
+              </div>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>

@@ -311,16 +311,16 @@ async def ai_heal_selector(req: HealSelectorRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI healing failed: {str(e)}")
 
-TODO_FILE_PATH = "/home/soufiane/Work/ai-scraper/todo_list.md"
-ARTIFACT_TODO_PATH = "/home/soufiane/.gemini/antigravity-cli/brain/9c5acae8-27b0-4ae5-b750-ed8631c345a2/todo_list.md"
+TODO_FILE_PATH = os.environ.get(
+    "SCRAPLING_TODO_PATH",
+    os.path.join(os.path.dirname(__file__), "..", "todo_list.md")
+)
 
 @app.get("/api/todo")
 async def get_todo_list():
     path = TODO_FILE_PATH
     if not os.path.exists(path):
-        path = ARTIFACT_TODO_PATH
-        if not os.path.exists(path):
-            return {"tasks": []}
+        return {"tasks": []}
             
     with open(path, "r", encoding="utf-8") as f:
         content = f.read()
@@ -391,15 +391,14 @@ async def update_todo_list(req: TodoListUpdateRequest):
         
     md_content = "\n".join(lines) + "\n"
     
-    for path in [TODO_FILE_PATH, ARTIFACT_TODO_PATH]:
-        try:
-            dir_name = os.path.dirname(path)
-            if dir_name and not os.path.exists(dir_name):
-                os.makedirs(dir_name, exist_ok=True)
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(md_content)
-        except Exception as e:
-            print(f"Failed to write todo list to {path}: {e}")
+    try:
+        dir_name = os.path.dirname(TODO_FILE_PATH)
+        if dir_name and not os.path.exists(dir_name):
+            os.makedirs(dir_name, exist_ok=True)
+        with open(TODO_FILE_PATH, "w", encoding="utf-8") as f:
+            f.write(md_content)
+    except Exception as e:
+        print(f"Failed to write todo list to {TODO_FILE_PATH}: {e}")
             
     return {"status": "success", "tasks": req.tasks}
 

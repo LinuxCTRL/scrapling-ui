@@ -9,45 +9,7 @@ import { SelectorInspector } from './components/SelectorInspector';
 import { RoadmapPanel } from './components/RoadmapPanel';
 import { SchedulerConsole } from './components/SchedulerConsole';
 import { AISettings } from './components/AISettings';
-
-interface DOMNode {
-  tag: string;
-  id: string;
-  classes: string;
-  text: string;
-  selector: string;
-  xpath: string;
-  rect: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  };
-  children?: DOMNode[];
-}
-
-interface NetworkLog {
-  id: string;
-  url: string;
-  method: string;
-  resource_type: string;
-  request_headers: Record<string, string>;
-  post_data: string | null;
-  status: number | null;
-  response_headers: Record<string, string> | null;
-  response_body: string | null;
-  size: number;
-}
-
-interface WorkflowStep {
-  action: 'navigate' | 'click' | 'fill' | 'scroll' | 'extract';
-  url?: string;
-  selector?: string;
-  value?: string;
-  y?: number;
-  name?: string;
-  attribute?: string;
-}
+import type { DOMNode, NetworkLog, WorkflowStep } from './types';
 
 function App() {
   const [url, setUrl] = useState('https://news.ycombinator.com');

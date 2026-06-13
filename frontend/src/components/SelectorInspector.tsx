@@ -1,29 +1,45 @@
 import React, { useState } from 'react';
 import { Copy, Check, Eye } from 'lucide-react';
-
-interface DOMNode {
-  tag: string;
-  id: string;
-  classes: string;
-  text: string;
-  selector: string;
-  xpath: string;
-  rect: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  };
-  children?: DOMNode[];
-}
+import type { DOMNode } from '../types';
 
 interface SelectorInspectorProps {
   selectedNode: DOMNode | null;
 }
 
+function scoreSelectorQuality(sel: string): { score: number; label: string; issues: string[] } {
+  const issues: string[] = [];
+  let score = 100;
+
+  if (!sel) return { score: 0, label: 'None', issues: ['No selector provided'] };
+
+  if (sel.startsWith('*')) { score -= 20; issues.push('Universal selector (*) is fragile'); }
+  if (sel.includes(':nth-of-type') || sel.includes(':nth-child')) {
+    score -= 15; issues.push('Uses :nth-* which breaks on DOM changes');
+  }
+  const tagOnly = /^[a-z]+$/i.test(sel);
+  if (tagOnly) { score -= 25; issues.push('Tag-only selector matches many elements'); }
+  if (sel.includes('#') && !sel.match(/#[a-zA-Z][a-zA-Z0-9_-]*/)) {
+    score -= 10; issues.push('ID contains unusual characters');
+  }
+  const parts = sel.split(/>/);
+  if (parts.length > 3) { score -= 10; issues.push('Deeply nested (>3 levels), very fragile'); }
+  else if (parts.length > 2) { score -= 5; issues.push('Nested selector (>2 levels), may be fragile'); }
+  if (sel.includes('[class') || sel.includes('[id')) { score -= 10; issues.push('Depends on generated class/id attributes'); }
+
+  let label = 'Excellent';
+  if (score < 30) label = 'Very Weak';
+  else if (score < 50) label = 'Weak';
+  else if (score < 70) label = 'Fair';
+  else if (score < 85) label = 'Good';
+
+  return { score: Math.max(0, score), label, issues };
+}
+
 export const SelectorInspector: React.FC<SelectorInspectorProps> = ({ selectedNode }) => {
   const [copiedSelector, setCopiedSelector] = useState(false);
   const [copiedXPath, setCopiedXPath] = useState(false);
+
+  const quality = selectedNode ? scoreSelectorQuality(selectedNode.selector) : null;
 
   const copySelector = () => {
     if (!selectedNode) return;
@@ -147,6 +163,47 @@ export const SelectorInspector: React.FC<SelectorInspectorProps> = ({ selectedNo
           </button>
         </div>
       </div>
+
+      {/* Selector Quality Score */}
+      {quality && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          background: 'rgba(255,255,255,0.01)',
+          border: '1px solid var(--border-light)',
+          borderRadius: 'var(--radius-md)',
+          padding: '10px 12px'
+        }}>
+          <div style={{
+            width: '40px',
+            height: '40px',
+            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontWeight: 700,
+            fontSize: '13px',
+            fontFamily: 'var(--font-mono)',
+            flexShrink: 0,
+            background: quality.score >= 85 ? 'rgba(16, 185, 129, 0.15)' : quality.score >= 70 ? 'rgba(234, 179, 8, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+            color: quality.score >= 85 ? '#10b981' : quality.score >= 70 ? '#eab308' : '#ef4444',
+            border: `2px solid ${quality.score >= 85 ? '#10b981' : quality.score >= 70 ? '#eab308' : '#ef4444'}`
+          }}>
+            {quality.score}
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>
+              Selector Quality: {quality.label}
+            </div>
+            {quality.issues.length > 0 && (
+              <ul style={{ margin: '4px 0 0', paddingLeft: '16px', fontSize: '10.5px', color: 'var(--text-muted)' }}>
+                {quality.issues.map((issue, i) => <li key={i}>{issue}</li>)}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Box details */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-md)', padding: '10px 12px' }}>

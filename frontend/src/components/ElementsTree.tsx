@@ -1,21 +1,6 @@
 import React, { useState } from 'react';
 import { ChevronRight, ChevronDown } from 'lucide-react';
-
-interface DOMNode {
-  tag: string;
-  id: string;
-  classes: string;
-  text: string;
-  selector: string;
-  xpath: string;
-  rect: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  };
-  children?: DOMNode[];
-}
+import type { DOMNode } from '../types';
 
 interface ElementsTreeProps {
   domTree: DOMNode | null;
